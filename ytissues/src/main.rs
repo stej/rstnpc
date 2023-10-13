@@ -1,3 +1,5 @@
+mod yt_item_processor;
+
 struct ConnectionInfo {
     token: String,
     base_url: String,
@@ -52,11 +54,11 @@ async fn main() {
 
     let query = prepare_query("#Bug #Resolved order by: updated desc");
 
-    match query_youtrack(&connection_info, &query, 1).await {
+    match query_youtrack(&connection_info, &query, 10).await {
         Ok(response) => {
             // response is json, pretty print the response
             let json: serde_json::Value = serde_json::from_str(&response).unwrap();
-            println!("{}", serde_json::to_string_pretty(&json).unwrap());
+            yt_item_processor::describe_yt_items(&json);
         },
         Err(error) => println!("Error: {:?}", error),
     }
