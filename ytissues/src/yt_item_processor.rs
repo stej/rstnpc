@@ -1,8 +1,9 @@
 use std::fmt;
+use chrono::{DateTime, Utc};
 
 struct YtItem {
     id: String,
-    created: u64,   // datetime v budoucnu
+    created: DateTime<Utc>,   // datetime v budoucnu
 }
 
 impl YtItem {
@@ -12,6 +13,7 @@ impl YtItem {
     fn parse(item: &serde_json::Value) -> YtItem {
         let id = item[Self::YT_ITEM_FIELD_IDREADABLE].as_str().unwrap();
         let created = item[Self::YT_ITEM_FIELD_CREATED].as_u64().unwrap();
+        let created : DateTime<Utc> = DateTime::UNIX_EPOCH + std::time::Duration::from_millis(created);
         YtItem { id: String::from(id), created: created }
     }
 }
