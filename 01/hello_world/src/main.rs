@@ -25,7 +25,7 @@ fn lowercase(input: &str) -> Result<String, Box<dyn Error>> {
     Ok(input.to_lowercase())
 }
 fn uppercase(input: &str) -> Result<String, Box<dyn Error>> {
-    Ok(input.to_lowercase())
+    Ok(input.to_uppercase())
 }
 fn slugify(input: &str) -> Result<String, Box<dyn Error>> {
     Ok(slug::slugify(input))
