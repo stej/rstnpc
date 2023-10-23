@@ -72,6 +72,6 @@ fn main() {
         };
     match result {
         Ok(transmuted) => println!("{}", transmuted),
-        Err(err) => eprintln!("Error: {}", err)
+        Err(err) => eprintln!("Operation '{}' failed: {}", option, err)
     }
 }
