@@ -12,35 +12,43 @@ fn usage() {
     process::exit(1);
 }
 
-fn read_input() -> String {
+fn read_input() -> Result<String, Box<dyn Error>> {
     println!("Specify some input: ");
     let mut input =  Vec::new();
     let stdin = std::io::stdin();
     let mut handle = stdin.lock();
-    handle.read_to_end(&mut input).unwrap();    // todo: handle error
-    input.into_iter().map(|c| c as char).collect::<String>()
+    handle.read_to_end(&mut input)?;
+    
+    Ok(input.into_iter().map(|c| c as char).collect::<String>())
 }
 
-fn lowercase(input: &str) -> Result<String, Box<dyn Error>> {
-    Ok(input.to_lowercase())
+fn lowercase() -> Result<String, Box<dyn Error>> {
+    let input = read_input()?;
+    Ok(input.trim().to_lowercase())
 }
-fn uppercase(input: &str) -> Result<String, Box<dyn Error>> {
-    Ok(input.to_uppercase())
+fn uppercase() -> Result<String, Box<dyn Error>> {
+    let input = read_input()?;
+    Ok(input.trim().to_uppercase())
 }
-fn slugify(input: &str) -> Result<String, Box<dyn Error>> {
-    Ok(slug::slugify(input))
+fn slugify() -> Result<String, Box<dyn Error>> {
+    let input = read_input()?;
+    Ok(slug::slugify(input.trim()))
 }
-fn no_space(input: &str) -> Result<String, Box<dyn Error>> {
-    Ok(input.replace(" ", ""))
+fn no_space() -> Result<String, Box<dyn Error>> {
+    let input = read_input()?;
+    Ok(input.trim().replace(" ", ""))
 }
-fn len(input: &str) -> Result<String, Box<dyn Error>> {
-    Ok(input.len().to_string())
+fn len() -> Result<String, Box<dyn Error>> {
+    let input = read_input()?;
+    Ok(input.trim().len().to_string())
 }
-fn reverse(input: &str) -> Result<String, Box<dyn Error>> {
-    Ok(input.chars().rev().collect::<String>())
+fn reverse() -> Result<String, Box<dyn Error>> {
+    let input = read_input()?;
+    Ok(input.trim().chars().rev().collect::<String>())
 }
-fn csv(input: &str) -> Result<String, Box<dyn Error>> {
-    let csv = csv::Csv::parse(input)?;
+fn csv() -> Result<String, Box<dyn Error>> {
+    let input = read_input()?;
+    let csv = csv::Csv::parse(input.trim())?;
     Ok(csv.to_string())
 }
 
@@ -56,18 +64,15 @@ fn main() {
         usage();
     }
     
-    let input = read_input();
-    let input = input.trim();
-
     let result =
         match option {
-            "lowercase" => lowercase(input),
-            "uppercase" => uppercase(input),
-            "slugify" => slugify(input),
-            "no-spaces" => no_space(input),
-            "len" => len(input),
-            "reverse" => reverse(input),
-            "csv" => csv(input),
+            "lowercase" => lowercase(),
+            "uppercase" => uppercase(),
+            "slugify" => slugify(),
+            "no-spaces" => no_space(),
+            "len" => len(),
+            "reverse" => reverse(),
+            "csv" => csv(),
             _ => panic!("Unknown option")
         };
     match result {
