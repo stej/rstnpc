@@ -105,12 +105,14 @@ fn main() {
         .into_iter()
         .map(|i| thread::spawn(move || {
             println!("Thread {}", i);
-            thread::sleep(std::time::Duration::from_millis(i));
+            ///thread::sleep(std::time::Duration::from_millis(i*100));
             i
         }))
+        .collect::<Vec<_>>()
+        .into_iter()
         .for_each(|h| {
             let i = h.join().unwrap();
-            println!("Thread {} finished", i);
+            println!(" --> {} finished", i);
         });
 
 
