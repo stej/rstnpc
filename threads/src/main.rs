@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-use std::{sync::Mutex, env::JoinPathsError};
+use std::{env::JoinPathsError, sync::Mutex};
 
 static COUNTER: Lazy<Mutex<i32>> = Lazy::new(|| Mutex::new(10));
 
@@ -25,7 +25,7 @@ use static_init::dynamic;
 #[dynamic]
 static L1: Vec<i32> = vec![1, 2, 3, 4, 5, 6];
 
-use std::{thread, vec, thread::JoinHandle};
+use std::{thread, thread::JoinHandle, vec};
 
 fn main() {
     {
@@ -115,5 +115,82 @@ fn main() {
             println!(" --> {} finished", i);
         });
 
+    //============================
+    thread::Builder::new()
+        .name("thread1".to_string())
+        .stack_size(1024)
+        .spawn(|| {
+            println!("Hello, World from named thread!");
+        })
+        .unwrap()
+        .join()
+        .unwrap();
 
+    //============================
+    thread_local! {
+        static COUNTERLOC: std::cell::RefCell<i32> = std::cell::RefCell::new(0);
+    }
+
+    // Increment the counter in the main thread
+    COUNTERLOC.with(|counter| {
+        *counter.borrow_mut() += 1;
+        println!("Main thread: {}", counter.borrow());
+    });
+
+    // Spawn a new thread and increment the counter in that thread
+    thread::spawn(|| {
+        COUNTERLOC.with(|counter| {
+            *counter.borrow_mut() += 100;
+            println!("Spawned thread: {}", counter.borrow());
+        });
+    })
+    .join()
+    .unwrap();
+
+    // Check the counter in the main thread
+    COUNTERLOC.with(|counter| {
+        println!("Main thread after join: {}", counter.borrow());
+    });
+
+    //=================================================================
+    let (tx, rx) = std::sync::mpsc::channel();
+    [("hi", tx.clone()), ("there", tx.clone())].map(|(msg, tx)| {
+        thread::spawn(move || {
+            tx.send(msg).unwrap();
+            println!("Sent {}", msg);
+        })
+    });
+    println!("Got: {}", rx.recv().unwrap());
+    println!("Got: {}", rx.recv().unwrap());
+
+    //=================================================================
+    //flume - fast, sync, async; tokio je pomaly
+    //crossbeam - konfigurovatelny, broadcasting atd.
+    let (tx, rx) = flume::unbounded();
+    thread::spawn(move || {
+        (0..10).for_each(|i| {
+            tx.send(i).unwrap();
+        })
+    });
+    let received: u32 = rx.iter().sum();
+    println!("Got by flume: {}", received);
+    let received: u32 = rx.iter().sum();
+    println!("Got by flume: {}", received);
+
+    // panics!
+    // let (tx, rx) = flume::unbounded();
+    // drop(rx);
+    // tx.send(42).unwrap();
+
+    let (tx, rx) = flume::unbounded();
+    tx.send(42).unwrap();
+    drop(tx);
+    println!("recv after tx dropped: {}", rx.recv().unwrap());
+    //=================================================================
+    use rayon::prelude::*;
+    let sum = (1..10)
+                .into_par_iter()
+                .map(|i| i * i * i)
+                .sum::<i32>();
+    println!("Sum: {}", sum);
 }
