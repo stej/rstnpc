@@ -1,22 +1,14 @@
 mod csv;
 mod operation;
 
-use regex::Regex;
-use std::{process, env};
+use std::{env};
 use std::io::{Read, stdin};
 use std::error::Error;
 use operation::{Operation, OperationWithParam};
-use std::thread;
+use std::thread::{self};
 use std::fs::read_to_string;
 use std::path::Path;
-
-
-static OPTIONS: &str = "lowercase|uppercase|slugify|no-spaces|len|reverse|csv";
-
-fn usage() {
-    println!("Usage: <app> <{}>", OPTIONS);
-    process::exit(1);
-}
+use std::sync::mpsc::Sender;
 
 fn read_input() -> Result<String, Box<dyn Error>> {
     println!("Specify some input: ");
@@ -53,7 +45,7 @@ fn csv(input: &str) -> Result<String, Box<dyn Error>> {
 
 fn split_line_to_operation_and_arg(line: &str) -> Result<OperationWithParam, Box<dyn Error>> {
     if line.trim().is_empty() {
-        return Ok(OperationWithParam{operation: Operation::Exit, param: String::new()});
+        return Ok(OperationWithParam::exit());
     }
 
     let mut split = line.splitn(2, ' ');
@@ -64,66 +56,34 @@ fn split_line_to_operation_and_arg(line: &str) -> Result<OperationWithParam, Box
     let arg = split
         .next()
         .ok_or("No argument found")?;
-    Ok(OperationWithParam{operation, param: arg.trim().to_string()})
+    Ok(OperationWithParam::from_interactive(operation, arg.trim().to_string()))
+}
+
+fn handle_from_cmdline(cmdline_arg: &str, send: Sender<OperationWithParam>) {
+    match cmdline_arg.parse::<Operation>() {
+        Ok(operation) => {
+            let input = read_input().expect("Unable to read stdin");
+            send.send(OperationWithParam::from_cmdline(operation, input)).unwrap();
+        }
+        Err(err) => eprintln!("Error: {}", err)
+    }
+    send.send(OperationWithParam::exit()).unwrap();
 }
 
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    // if args.len() > 1 {
-    //     if args.len() != 2 {
-    //         usage();
-    //     }
-    //     let option = args[1].as_str();
-    //     let args_regex = Regex::new(format!(r"^({})$", OPTIONS).as_str()).unwrap();
-    //     if !args_regex.is_match(option) {
-    //         usage();
-    //     }
-        
-    //     let result =
-    //         match option {
-    //             "lowercase" => lowercase(),
-    //             "uppercase" => uppercase(),
-    //             "slugify" => slugify(),
-    //             "no-spaces" => no_space(),
-    //             "len" => len(),
-    //             "reverse" => reverse(),
-    //             "csv" => csv(),
-    //             _ => panic!("Unknown option")
-    //         };
-    //     return match result {
-    //         Ok(transmuted) => println!("{}", transmuted),
-    //         Err(err) => eprintln!("Operation '{}' failed: {}", option, err)
-    //     };
-    // }
 
     let (send, rec) = std::sync::mpsc::channel();
-    let input_thread = thread::spawn(move || {
-        let mut line = String::new();
-        loop {
-            stdin().read_line(&mut line).unwrap();
-            let what_to_do = split_line_to_operation_and_arg(&line);
-            match what_to_do {
-                Ok(op) 
-                    if op.operation == Operation::Exit => { 
-                        send.send(op).unwrap();
-                        println!("Exiting sender.");
-                        break;
-                    }
-                Ok(op) => send.send(op).unwrap(),
-                Err(err) => eprintln!("Error: {}", err)
-            }
-            line.clear()
-        }
-    });
+    
+    // start always; will process even the commands from cmdline
+    // one way of doing things
+    // although thre is of course the possibility to branch the code more
     let process_thread = thread::spawn(move || {
         loop {
             let message = rec.recv();
-            let Ok(OperationWithParam { operation, param }) = 
-                message else {
-                    panic!("Unexpected input: {:?}", message);
-                };
+            let Ok(OperationWithParam { operation, param, param_from_args }) = message else {
+                panic!("Unexpected input: {:?}", message);
+            };
             let result =
                 match operation {
                     Operation::Lowercase => lowercase(&param),
@@ -133,12 +93,16 @@ fn main() {
                     Operation::Len => len(&param),
                     Operation::Reverse => reverse(&param),
                     Operation::Csv => { 
-                        let path = Path::new(&param);
-                        let file_content = read_to_string(&path).expect("Unable to read file");
+                        let file_content = if param_from_args {
+                                                        param
+                                                    } else {
+                                                        let path = Path::new(&param);
+                                                        read_to_string(&path).expect("Unable to read file")
+                                                    };
                         csv(&file_content)
                     },
                     Operation::Exit => {
-                        println!("Exiting receiver..");
+                        //println!("Exiting receiver..");
                         break
                     }
                 };
@@ -148,6 +112,31 @@ fn main() {
             };
         }
     });
-    input_thread.join().unwrap();
+
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 {
+        handle_from_cmdline(&args[1], send);
+    } else {
+        thread::spawn(move || {
+            let mut line = String::new();
+            loop {
+                stdin().read_line(&mut line).unwrap();
+                let what_to_do = split_line_to_operation_and_arg(&line);
+                match what_to_do {
+                    Ok(op) =>  {
+                        let is_exit = op.operation == Operation::Exit;
+                        send.send(op).unwrap();
+                        if is_exit { 
+                            //println!("Exiting sender.");
+                            break;
+                        }
+                    }
+                    Err(err) => eprintln!("Error: {}", err)
+                }
+                line.clear()
+            }
+        }).join().unwrap();
+    };
+
     process_thread.join().unwrap();
 }

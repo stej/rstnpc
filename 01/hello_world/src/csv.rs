@@ -1,6 +1,6 @@
 use std::{error::Error, fmt::Display};
 use std::fmt::Formatter;
-use std::{fmt, vec, any};
+use std::{fmt};
 
 pub struct Csv {
     header: Strings,
@@ -32,7 +32,7 @@ impl Csv {
                             .iter()
                             .all(|row| row.len() == header.len());
         if !all_size_as_header{
-            return Err("error parsing csv - incorrect rows count".into());
+            return Err("error parsing csv - incorrect cols count".into());
         }
         if rows.len() == 0 {
             eprintln!("warning: empty csv");

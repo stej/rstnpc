@@ -32,6 +32,19 @@ impl FromStr for Operation {
 pub struct OperationWithParam {
     pub operation: Operation,
     pub param: String,
+    pub param_from_args: bool
+}
+
+impl OperationWithParam {
+    pub fn from_cmdline(operation: Operation, param: String) -> Self {
+        Self { operation, param, param_from_args: true }
+    }
+    pub fn from_interactive(operation: Operation, param: String) -> Self {
+        Self { operation, param, param_from_args: false }
+    }
+    pub fn exit() -> Self {
+        Self::from_interactive(Operation::Exit, String::new())
+    }
 }
 
 #[cfg(test)]
