@@ -8,7 +8,8 @@ pub enum Operation {
     NoSpaces,
     Len,
     Reverse,
-    Csv
+    Csv,
+    Exit
 }
 
 impl FromStr for Operation {

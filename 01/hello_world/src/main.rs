@@ -7,6 +7,8 @@ use std::io::{Read, stdin};
 use std::error::Error;
 use operation::{Operation, OperationWithParam};
 use std::thread;
+use std::fs::read_to_string;
+use std::path::Path;
 
 
 static OPTIONS: &str = "lowercase|uppercase|slugify|no-spaces|len|reverse|csv";
@@ -26,37 +28,34 @@ fn read_input() -> Result<String, Box<dyn Error>> {
     Ok(input.into_iter().map(|c| c as char).collect::<String>())
 }
 
-fn lowercase() -> Result<String, Box<dyn Error>> {
-    let input = read_input()?;
-    Ok(input.trim().to_lowercase())
+fn lowercase(input: &str) -> Result<String, Box<dyn Error>> {
+    Ok(input.to_lowercase())
 }
-fn uppercase() -> Result<String, Box<dyn Error>> {
-    let input = read_input()?;
-    Ok(input.trim().to_uppercase())
+fn uppercase(input: &str) -> Result<String, Box<dyn Error>> {
+    Ok(input.to_uppercase())
 }
-fn slugify() -> Result<String, Box<dyn Error>> {
-    let input = read_input()?;
-    Ok(slug::slugify(input.trim()))
+fn slugify(input: &str) -> Result<String, Box<dyn Error>> {
+    Ok(slug::slugify(input))
 }
-fn no_space() -> Result<String, Box<dyn Error>> {
-    let input = read_input()?;
-    Ok(input.trim().replace(" ", ""))
+fn no_space(input: &str) -> Result<String, Box<dyn Error>> {
+    Ok(input.replace(" ", ""))
 }
-fn len() -> Result<String, Box<dyn Error>> {
-    let input = read_input()?;
-    Ok(input.trim().len().to_string())
+fn len(input: &str) -> Result<String, Box<dyn Error>> {
+    Ok(input.len().to_string())
 }
-fn reverse() -> Result<String, Box<dyn Error>> {
-    let input = read_input()?;
-    Ok(input.trim().chars().rev().collect::<String>())
+fn reverse(input: &str) -> Result<String, Box<dyn Error>> {
+    Ok(input.chars().rev().collect::<String>())
 }
-fn csv() -> Result<String, Box<dyn Error>> {
-    let input = read_input()?;
-    let csv = csv::Csv::parse(input.trim())?;
+fn csv(input: &str) -> Result<String, Box<dyn Error>> {
+    let csv = csv::Csv::parse(input)?;
     Ok(csv.to_string())
 }
 
 fn split_line_to_operation_and_arg(line: &str) -> Result<OperationWithParam, Box<dyn Error>> {
+    if line.trim().is_empty() {
+        return Ok(OperationWithParam{operation: Operation::Exit, param: String::new()});
+    }
+
     let mut split = line.splitn(2, ' ');
     let operation =
         split
@@ -72,39 +71,46 @@ fn split_line_to_operation_and_arg(line: &str) -> Result<OperationWithParam, Box
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() > 1 {
-        if args.len() != 2 {
-            usage();
-        }
-        let option = args[1].as_str();
-        let args_regex = Regex::new(format!(r"^({})$", OPTIONS).as_str()).unwrap();
-        if !args_regex.is_match(option) {
-            usage();
-        }
+    // if args.len() > 1 {
+    //     if args.len() != 2 {
+    //         usage();
+    //     }
+    //     let option = args[1].as_str();
+    //     let args_regex = Regex::new(format!(r"^({})$", OPTIONS).as_str()).unwrap();
+    //     if !args_regex.is_match(option) {
+    //         usage();
+    //     }
         
-        let result =
-            match option {
-                "lowercase" => lowercase(),
-                "uppercase" => uppercase(),
-                "slugify" => slugify(),
-                "no-spaces" => no_space(),
-                "len" => len(),
-                "reverse" => reverse(),
-                "csv" => csv(),
-                _ => panic!("Unknown option")
-            };
-        return match result {
-            Ok(transmuted) => println!("{}", transmuted),
-            Err(err) => eprintln!("Operation '{}' failed: {}", option, err)
-        };
-    }
+    //     let result =
+    //         match option {
+    //             "lowercase" => lowercase(),
+    //             "uppercase" => uppercase(),
+    //             "slugify" => slugify(),
+    //             "no-spaces" => no_space(),
+    //             "len" => len(),
+    //             "reverse" => reverse(),
+    //             "csv" => csv(),
+    //             _ => panic!("Unknown option")
+    //         };
+    //     return match result {
+    //         Ok(transmuted) => println!("{}", transmuted),
+    //         Err(err) => eprintln!("Operation '{}' failed: {}", option, err)
+    //     };
+    // }
 
     let (send, rec) = std::sync::mpsc::channel();
     let input_thread = thread::spawn(move || {
         let mut line = String::new();
         loop {
             stdin().read_line(&mut line).unwrap();
-            match split_line_to_operation_and_arg(&line) {
+            let what_to_do = split_line_to_operation_and_arg(&line);
+            match what_to_do {
+                Ok(op) 
+                    if op.operation == Operation::Exit => { 
+                        send.send(op).unwrap();
+                        println!("Exiting sender.");
+                        break;
+                    }
                 Ok(op) => send.send(op).unwrap(),
                 Err(err) => eprintln!("Error: {}", err)
             }
@@ -113,22 +119,33 @@ fn main() {
     });
     let process_thread = thread::spawn(move || {
         loop {
-            let operation = rec.recv().unwrap();
-            // let result =
-            //     match operation {
-            //         Operation::Lowercase => lowercase(),
-            //         Operation::Uppercase => uppercase(),
-            //         Operation::Slugify => slugify(),
-            //         Operation::NoSpaces => no_space(),
-            //         Operation::Len => len(),
-            //         Operation::Reverse => reverse(),
-            //         Operation::Csv => csv(),
-            //     };
-            // match result {
-            //     Ok(transmuted) => println!("{}", transmuted),
-            //     Err(err) => eprintln!("Operation '{:?}' failed: {}", operation, err)
-            // };
-            println!("{:?}", operation);
+            let message = rec.recv();
+            let Ok(OperationWithParam { operation, param }) = 
+                message else {
+                    panic!("Unexpected input: {:?}", message);
+                };
+            let result =
+                match operation {
+                    Operation::Lowercase => lowercase(&param),
+                    Operation::Uppercase => uppercase(&param),
+                    Operation::Slugify => slugify(&param),
+                    Operation::NoSpaces => no_space(&param),
+                    Operation::Len => len(&param),
+                    Operation::Reverse => reverse(&param),
+                    Operation::Csv => { 
+                        let path = Path::new(&param);
+                        let file_content = read_to_string(&path).expect("Unable to read file");
+                        csv(&file_content)
+                    },
+                    Operation::Exit => {
+                        println!("Exiting receiver..");
+                        break
+                    }
+                };
+            match result {
+                Ok(transmuted) => println!("{}", transmuted),
+                Err(err) => eprintln!("Operation '{:?}' failed: {}", operation, err)
+            };
         }
     });
     input_thread.join().unwrap();
