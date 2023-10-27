@@ -10,6 +10,7 @@ use std::fs::read_to_string;
 use std::path::Path;
 use std::sync::mpsc::Sender;
 
+/// Reads input from stdin until EOF (CTRL+D / CTRL+Z).
 fn read_input() -> Result<String, Box<dyn Error>> {
     println!("Specify some input: ");
     let mut input =  Vec::new();
@@ -43,6 +44,10 @@ fn csv(input: &str) -> Result<String, Box<dyn Error>> {
     Ok(csv.to_string())
 }
 
+/// Expected to get string like `<operation> <argument>`
+/// 
+/// Returns `OperationWithParam` or error if the input is not in the expected format.
+/// 
 fn split_line_to_operation_and_arg(line: &str) -> Result<OperationWithParam, Box<dyn Error>> {
     if line.trim().is_empty() {
         return Ok(OperationWithParam::exit());
@@ -59,6 +64,9 @@ fn split_line_to_operation_and_arg(line: &str) -> Result<OperationWithParam, Box
     Ok(OperationWithParam::from_interactive(operation, arg.trim().to_string()))
 }
 
+/// Used when the program is called with a command line argument.
+/// Only first argument is used. It's expected to be operation name.
+/// The rest of the input is read from stdin.
 fn handle_from_cmdline(cmdline_arg: &str, send: Sender<OperationWithParam>) {
     match cmdline_arg.parse::<Operation>() {
         Ok(operation) => {
