@@ -1,13 +1,11 @@
 mod csv;
 mod operation;
 
-use std::{env};
+use std::env;
 use std::io::{Read, stdin};
 use std::error::Error;
 use operation::{Operation, OperationWithParam};
 use std::thread::{self};
-use std::fs::read_to_string;
-use std::path::Path;
 use std::sync::mpsc::Sender;
 
 /// Reads input from stdin until EOF (CTRL+D / CTRL+Z).
@@ -56,24 +54,25 @@ fn split_line_to_operation_and_arg(line: &str) -> Result<OperationWithParam, Box
     let mut split = line.splitn(2, ' ');
     let operation =
         split
-        .next().ok_or("No operation found")?
+        .next()
+        .ok_or("No operation found")?
         .parse::<Operation>()?;
     let arg = split
         .next()
         .ok_or("No argument found")?;
-    Ok(OperationWithParam::from_interactive(operation, arg.trim().to_string()))
+    Ok(OperationWithParam::new(operation, arg.trim().to_string()))
 }
 
 /// Used when the program is called with a command line argument.
 /// Only first argument is used. It's expected to be operation name.
 /// The rest of the input is read from stdin.
-fn handle_from_cmdline(cmdline_arg: &str, send: Sender<OperationWithParam>) {
+fn handle_operation_from_cmdline(cmdline_arg: &str, send: Sender<OperationWithParam>) {
     match cmdline_arg.parse::<Operation>() {
         Ok(operation) => {
             let input = read_input().expect("Unable to read stdin");
-            send.send(OperationWithParam::from_cmdline(operation, input)).unwrap();
+            send.send(OperationWithParam::new(operation, input)).unwrap();
         }
-        Err(err) => eprintln!("Error: {}", err)
+        Err(err) => eprintln!("Unable to parse operation: {err}")
     }
     send.send(OperationWithParam::exit()).unwrap();
 }
@@ -81,28 +80,20 @@ fn handle_from_cmdline(cmdline_arg: &str, send: Sender<OperationWithParam>) {
 
 fn main() {
 
-    let (send, rec) = std::sync::mpsc::channel();
+    let (send, rec) = std::sync::mpsc::channel::<OperationWithParam>();
     
-    // start always; will process even the commands from cmdline
-    // one way of doing things
-    // although thre is of course the possibility to branch the code more
+    // start always; will process not only interactive parameters, but also commands from cmdline
+    // (design decision; but in general it's not desirable to run code in threads that are not really needed)
     let process_thread = thread::spawn(move || {
-        fn process_csv_message(read_from_file: bool, operation_param: String) -> Result<String, Box<dyn Error>> {
-            let file_content = 
-                if read_from_file {
-                    let path = Path::new(&operation_param);
-                    read_to_string(&path)
-                        .map_err(|err| format!("Unable to read file: {}", err))?
-                } else {
-                    operation_param
-                };
-            csv(&file_content)
-        }
-
         loop {
             let message = rec.recv();
-            let Ok(OperationWithParam { operation, param, is_interactive_operation }) = message else {
-                panic!("Unexpected input: {:?}", message);
+            let Ok(message) = message else {
+                eprintln!("Unable to read message: {message:?}");
+                break;
+            };
+            let Ok(OperationWithParam { operation, param }) = message.standardize() else {
+                eprintln!("Unable to standardize parameters: {message:?}");
+                continue;
             };
             let result =
                 match operation {
@@ -112,22 +103,19 @@ fn main() {
                     Operation::NoSpaces => no_space(&param),
                     Operation::Len => len(&param),
                     Operation::Reverse => reverse(&param),
-                    Operation::Csv => process_csv_message(is_interactive_operation, param),
-                    Operation::Exit => {
-                        //println!("Exiting receiver..");
-                        break
-                    }
+                    Operation::Csv => csv(&param),
+                    Operation::Exit => break,
                 };
             match result {
-                Ok(transmuted) => println!("{}", transmuted),
-                Err(err) => eprintln!("Operation '{:?}' failed: {}", operation, err)
-            };
+                Ok(transmuted) => println!("{transmuted}"),
+                Err(err) => eprintln!("Operation '{operation:?}' failed: {err}"),
+            }
         }
     });
 
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
-        handle_from_cmdline(&args[1], send);
+        handle_operation_from_cmdline(&args[1], send);
     } else {
         println!("Type empty line to exit.");
         thread::spawn(move || {
@@ -144,12 +132,11 @@ fn main() {
                             break;
                         }
                     }
-                    Err(err) => eprintln!("Error: {}", err)
+                    Err(err) => eprintln!("Error: {err}")
                 }
                 line.clear()
             }
         }).join().unwrap();
     };
-
     process_thread.join().unwrap();
 }
