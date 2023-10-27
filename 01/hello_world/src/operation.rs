@@ -32,15 +32,15 @@ impl FromStr for Operation {
 pub struct OperationWithParam {
     pub operation: Operation,
     pub param: String,
-    pub param_from_args: bool
+    pub is_interactive_operation: bool
 }
 
 impl OperationWithParam {
     pub fn from_cmdline(operation: Operation, param: String) -> Self {
-        Self { operation, param, param_from_args: true }
+        Self { operation, param, is_interactive_operation: false }
     }
     pub fn from_interactive(operation: Operation, param: String) -> Self {
-        Self { operation, param, param_from_args: false }
+        Self { operation, param, is_interactive_operation: true }
     }
     pub fn exit() -> Self {
         Self::from_interactive(Operation::Exit, String::new())
