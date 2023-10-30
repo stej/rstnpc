@@ -58,7 +58,9 @@ async fn main() {
         Ok(response) => {
             // response is json, pretty print the response
             let json: serde_json::Value = serde_json::from_str(&response).unwrap();
-            yt_item_processor::describe_yt_items(&json);
+            //yt_item_processor::describe_yt_items(&json);
+            let ytitems = yt_item_processor::parse_items(&json);
+            println!("{}", ytitems)
         },
         Err(error) => println!("Error: {:?}", error),
     }
