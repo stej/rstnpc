@@ -1,3 +1,5 @@
 /ytissues/target/*
 /ytissues/token.txt
 /ytissues/sampleissue.json
+
+/01/*/target/
