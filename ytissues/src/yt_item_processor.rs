@@ -27,37 +27,34 @@ impl YtItem {
     const YT_ITEM_FIELD_SUMMARY: &str = "summary";
     const YT_ITEM_FIELD_REPORTERLOGIN: &str = "reporter/login";
 
-    fn transform_nested<T>(
-            item: &serde_json::Value, 
-            field_path: &str, 
-            transform: fn(&serde_json::Value) -> Result<T, Box<dyn Error>>) -> Result<T, Box<dyn Error>> {
+    fn get_nested<'l>(item: &'l serde_json::Value, field_path: &str) -> &'l serde_json::Value {
         match field_path.split_once("/") {
-            None => transform(item),
-            Some((parent, rest)) => Self::transform_nested(&item[parent], rest, transform)
+            None => &item[field_path],
+            Some((parent, rest)) => Self::get_nested(&item[parent], rest)
         }
     }
 
     fn field_to_datetime(field_name: &str, item: &serde_json::Value) -> Result<UtcDateTime, Box<dyn Error>> {
-        let ms = item[field_name]
+        let item = Self::get_nested(item, field_name);
+        let ms = item
             .as_u64()
             .ok_or(format!("Unable to parse date. Item: {field_name}"))?;
         Ok(DateTime::UNIX_EPOCH + std::time::Duration::from_millis(ms))
     }
     fn field_to_string(field_name: &str, item: &serde_json::Value) -> Result<String, Box<dyn Error>> {
-        let val = Self::transform_nested(
-                        item,
-                        field_name,
-                        //|v| v.as_str().ok_or(Err("Unable to parse string. Item: {field_name}")))?;
-                        |v| v.as_str().to_owned().ok_or("Unable to parse string. Item: {field_name}".into()))?;
-        Ok(val.into())
+        let item = Self::get_nested(item, field_name);
+        let s = item
+                        .as_str()
+                        .ok_or(format!("Unable to parse string. Item: {field_name}"))?;
+        Ok(s.into())
     }
 
     fn parse(item: &serde_json::Value) -> YtItem {
-        let id = item[Self::YT_ITEM_FIELD_IDREADABLE].as_str().unwrap().into();
-        let summary = item[Self::YT_ITEM_FIELD_SUMMARY].as_str().unwrap().into();
+        let id = Self::field_to_string(Self::YT_ITEM_FIELD_IDREADABLE, item).expect("Unable to parse id");
+        let summary = Self::field_to_string(Self::YT_ITEM_FIELD_SUMMARY, item).expect("Unable to parse summary");
         let created = Self::field_to_datetime(Self::YT_ITEM_FIELD_CREATED, item).expect("Unable to parse date");
         let updated = Self::field_to_datetime(Self::YT_ITEM_FIELD_UPDATED, item).expect("Unable to parse date");
-        let reporter_login = "".into();
+        let reporter_login = Self::field_to_string(Self::YT_ITEM_FIELD_REPORTERLOGIN, item).expect("Unable to parse reporter");
         YtItem { 
                 id: id,
                 created: created,
