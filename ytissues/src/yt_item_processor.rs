@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::vec::Vec;
 use chrono::{DateTime, Utc};
+use std::ops::{Deref, DerefMut};
 
 pub type UtcDateTime = DateTime<Utc>;
 
@@ -14,11 +15,7 @@ pub struct YtItem {
     reporter_login: String,
 }
 
-//pub type YtItems = Vec<YtItem>;
-//pub struct YtItems(Vec<YtItem>);
-pub struct YtItems{ 
-    pub items: Vec<YtItem>
-}
+pub struct YtItems(Vec<YtItem>);
 
 impl YtItem {
     const YT_ITEM_FIELD_IDREADABLE: &str = "idReadable";
@@ -72,12 +69,24 @@ impl fmt::Display for YtItem {
 
 impl fmt::Display for YtItems {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let as_string = self.items
+        let as_string = self
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>()
             .join("\n");
         write!(f, "{}", as_string)
+    }
+}
+
+impl DerefMut for YtItems {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl Deref for YtItems {
+    type Target = Vec<YtItem>;
+    fn deref(& self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -94,11 +103,5 @@ pub fn parse_items(item: &serde_json::Value) -> YtItems {
         .iter()
         .map(YtItem::parse)
         .collect();
-    YtItems { items: items }
+    YtItems(items)
 }
-
-// pub fn describe_yt_items(items: &YtItems) {
-//     for item in items.items.iter() {
-//         println!("{}", item);
-//     }
-// }
