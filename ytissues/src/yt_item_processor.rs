@@ -13,6 +13,8 @@ pub struct YtItem {
     updated: UtcDateTime,
     summary: String,
     reporter_login: String,
+    project: String,
+    project_short: String
 }
 
 pub struct YtItems(Vec<YtItem>);
@@ -23,6 +25,8 @@ impl YtItem {
     const YT_ITEM_FIELD_UPDATED: &str = "updated";
     const YT_ITEM_FIELD_SUMMARY: &str = "summary";
     const YT_ITEM_FIELD_REPORTERLOGIN: &str = "reporter/login";
+    const YT_ITEM_FIELD_PROJECT: &str = "project/name";
+    const YT_ITEM_FIELD_PROJECTSHORT: &str = "project/shortName";
 
     fn get_nested<'l>(item: &'l serde_json::Value, field_path: &str) -> &'l serde_json::Value {
         match field_path.split_once("/") {
@@ -52,18 +56,22 @@ impl YtItem {
         let created = Self::field_to_datetime(Self::YT_ITEM_FIELD_CREATED, item).expect("Unable to parse date");
         let updated = Self::field_to_datetime(Self::YT_ITEM_FIELD_UPDATED, item).expect("Unable to parse date");
         let reporter_login = Self::field_to_string(Self::YT_ITEM_FIELD_REPORTERLOGIN, item).expect("Unable to parse reporter");
+        let project = Self::field_to_string(Self::YT_ITEM_FIELD_PROJECT, item).expect("Unable to parse project");
+        let project_short = Self::field_to_string(Self::YT_ITEM_FIELD_PROJECTSHORT, item).expect("Unable to parse short project name");
         YtItem { 
-                id: id,
-                created: created,
-                updated: updated,
-                summary: summary,
-                reporter_login: reporter_login
+                id,
+                created,
+                updated,
+                summary,
+                reporter_login,
+                project,
+                project_short
         }
     }
 }
 impl fmt::Display for YtItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "#{: >9}, c/u: {}/{} by: {:>12}: {}", self.id, self.created, self.updated, self.reporter_login, self.summary)
+        write!(f, "#{: >9}({}), c/u: {}/{} by: {:>12}: {}", self.id, self.project_short, self.created, self.updated, self.reporter_login, self.summary)
     }
 }
 
