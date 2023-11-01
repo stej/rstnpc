@@ -1,6 +1,6 @@
 use std::path::Path;
-use std::{io::Write};
-use std::net::{SocketAddr, TcpStream, IpAddr};
+use std::io::Write;
+use std::net::{SocketAddr, TcpStream};
 use std::error::Error;
 use shared::Message;    //https://github.com/Miosso/rust-workspace
 use std::fs;
@@ -30,31 +30,19 @@ fn send_message(message: &Message, tcp_stream: &mut TcpStream) -> Result<(), Box
 fn process_command(command: &str, tcp_stream: &mut TcpStream) -> Result<(), Box<dyn Error>> {
     fn file_to_message(file_path: &str) -> Result<Message, Box<dyn Error>> {
         let path = Path::new(file_path);
-        // 1 
-        path.exists()
-            .then(|| {
-                let content = fs::read(path).unwrap();
-                Message::File { name: file_path.into(), content }
-            })
-            .ok_or(format!("File {} does not exist", file_path).into())
-
-        // 2
-        // if path.exists() {
-        //     let content = fs::read(path).unwrap();
-        //     Ok(Message::File { name: file_path.into(), content })
-        // } else {
-        //     Err(format!("File {} does not exist", file_path).into())
-        // }
+        if path.exists() {
+            let content = fs::read(path).unwrap();
+            Ok(Message::File { name: file_path.into(), content })
+        } else {
+            Err(format!("File {} does not exist", file_path).into())
+        }
     }
 
     fn image_to_message(file_path: &str) -> Result<Message, Box<dyn Error>> {
         let file = file_to_message(file_path)?;
-        let Message::File{name, content} = file else {
+        let Message::File{name: _, content} = file else {
             panic!("Expected file, but got {:?}", file);
         };
-        // let Ok(Message::File { name, content }) = read_file else {
-        //     return Err(format!("Unable to process image '{}'", file_path).into())
-        // };
         let path = Path::new(file_path);
         match path.extension().ok_or("Unable to get extension")?.to_str().ok_or("Unable to get extension")? {
             ".png"  => Ok(Message::Image(content)),
