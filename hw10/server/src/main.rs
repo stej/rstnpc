@@ -30,19 +30,6 @@ impl ConnectedClients {
 fn read_messages_from_clients(clients: &mut ConnectedClients) -> Vec<(Message, SocketAddr)> {
     let mut received = Vec::new();
     for (&addr, client) in &mut clients.clients {
-        // let Ok(read_bytes) = client.peek(&mut temp_buff) else {
-        //     continue;
-        // };
-        // if read_bytes > 0 {
-        //     match Message::receive(client) {
-        //         Ok(m) => { 
-        //             println!("Received message: {:?}", m);
-        //             received.push((m, addr))
-        //         },
-        //         Err(e) => eprintln!("Error reading message: {}", e)
-        //     }
-        // }
-        //match Message::try_receive(client) {
         match Message::receive(client) {
             Ok(Some(m)) => { 
                 println!("+: {:?}", m);

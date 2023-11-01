@@ -16,7 +16,6 @@ pub enum Message {
     ClientQuit(String)
 }
 
-//pub const STREAM_READ_TIMEOUT_MS: u64 = 100;
 pub const STREAM_READ_TIMEOUT : Duration = Duration::from_millis(100);
 
 impl Message {
@@ -59,6 +58,9 @@ impl Message {
                 },
             }
         };
+        // note: not sure how to return error properly
+        // I'd like to have error that contains information about connection error (e.g. client disconnected) as well about the deserialization error
+        // enum? 
         let message = {
             let mut buffer =  vec![0u8; data_len];
             stream.read_exact(&mut buffer)?;
@@ -66,18 +68,4 @@ impl Message {
         };
         Ok(Some(message))
     }
-
-    // pub fn try_receive(stream: &mut TcpStream) -> Result<Option<Message>, Box<dyn Error>> {
-    //     let mut temp_buff = [0u8; 1];
-    //     let Ok(read_bytes) = stream.peek(&mut temp_buff) else {
-    //         return Ok(None);
-    //     };
-    //     if read_bytes == 0 { 
-    //         return Ok(None); 
-    //     }
-    //     match Message::receive(stream) {
-    //         Ok(m) => Ok(Some(m)),
-    //         Err(e) => Err(e)
-    //     }
-    // }
 }

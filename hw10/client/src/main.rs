@@ -1,5 +1,5 @@
+use core::panic;
 use std::path::Path;
-//use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::error::Error;
 use shared::Message;    //https://github.com/Miosso/rust-workspace
@@ -18,7 +18,7 @@ struct ConnectionArgs {
     host: String,
 }
 
-fn process_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<dyn Error>> {
+fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<dyn Error>> {
     fn file_to_message(file_path: &str) -> Result<Message, Box<dyn Error>> {
         let path = Path::new(file_path);
         if path.exists() {
@@ -53,7 +53,6 @@ fn process_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<dyn Er
     match message {
         Ok(message) => { 
             println!("-> {:?}", message);
-            //message.send_to(tcp_stream)
             tx.send(message).map_err(|e| e.into())
         },
         Err(error) /*@ e*/ => Err(error)                            // todo zjednodusit?
@@ -61,13 +60,23 @@ fn process_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<dyn Er
 }
 
 fn try_receive_message(stream: &mut TcpStream) {
-    //match Message::try_receive(stream) {
     match Message::receive(stream) {
         Ok(Some(m)) => { 
             println!("got {:?}", m);
         },
         Ok(None) => {},
-        Err(e) => eprintln!("Error reading message: {}", e)
+        Err(e) =>  {
+            // this would be great to have a reason of the error - e.g. server disconnected
+            // match e.kind() { 
+            //     std::io::ErrorKind::ConnectionAborted | 
+            //     std::io::ErrorKind::ConnectionReset |
+            //     std::io::ErrorKind::ConnectionRefused => {
+            //         panic!("Connection closed by server");
+            //     },
+            //     _ => eprintln!("Error reading message: {}", e)
+            // }
+            eprintln!("Error reading message: {}", e)
+        }
     }
 }
 
@@ -104,7 +113,7 @@ fn main() {
         let command_result = 
             match stdin.read_line(&mut line) {
                 Ok(_) if line.trim() == ".quit" => break,
-                Ok(_) => process_command(&line, &tx),
+                Ok(_) => process_stdin_command(&line, &tx),
                 Err(error) => Err(error.into()),
             };
         if let Err(e) = command_result {
