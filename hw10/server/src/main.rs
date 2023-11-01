@@ -1,7 +1,8 @@
 use clap::Parser;
-use std::{net::TcpListener, io::Read, error::Error, net::TcpStream};
+use std::{net::TcpListener, io::Read, error::Error, net::TcpStream, net::SocketAddr};
 use shared::Message;
 use std::time::Duration;
+use std::collections::HashMap;
 
 #[derive(Parser)]
 struct ListenerArgs {
@@ -12,17 +13,17 @@ struct ListenerArgs {
 }
 
 #[derive(Debug)]
-struct ConnectedClients<'a> {
-    clients: Vec<&'a mut TcpStream>
+struct ConnectedClients {
+    clients: HashMap<SocketAddr, TcpStream>
 }
 
-impl<'a> ConnectedClients<'a> { 
-    fn add(&mut self, client: &'a mut TcpStream) {
-        self.clients.push(client);
+impl ConnectedClients { 
+    fn add(&mut self, client: TcpStream) {
+        self.clients.insert(client.peer_addr().unwrap(), client);
     }
 
     fn new() -> Self {
-        Self { clients: Vec::new() }
+        Self { clients: HashMap::new() }
     }
 }
 
@@ -41,17 +42,17 @@ fn read_message(stream: &mut TcpStream) -> Result<Message, Box<dyn Error>> {
     Ok(message)
 }
 
-fn read_messages_from_clients<'a>(clients: &'a mut ConnectedClients) -> Vec<(Message, &'a mut TcpStream)> {
+fn read_messages_from_clients(clients: &mut ConnectedClients) -> Vec<(Message, SocketAddr)> {
     let mut temp_buff = [0u8; 1];
     let mut received = Vec::new();
-    for client in clients.clients {
+    for (&addr, client) in &mut clients.clients {
         let Ok(read_bytes) = client.peek(&mut temp_buff) else {
             continue;
         };
         if read_bytes > 0 {
             let msg = read_message(client);
             match msg {
-                Ok(m) => received.push((m, client)),
+                Ok(m) => received.push((m, addr)),
                 Err(e) => eprintln!("Error reading message: {}", e)
             }
         }
@@ -67,7 +68,7 @@ fn accept_connection(stream: Result<TcpStream, std::io::Error>) -> Option<TcpStr
     }
 }
 
-fn broadcast_messages<'t>(clients: &'t ConnectedClients, incomming_messages: Vec<(Message, &mut TcpStream)>) {
+fn broadcast_messages(clients: &ConnectedClients, incomming_messages: Vec<(Message, SocketAddr)>) {
     println!("{:?}", clients);
     println!("{:?}", incomming_messages);
 }
@@ -90,7 +91,7 @@ fn main() {
             clients.add(stream);
         }
         let incomming_messages = read_messages_from_clients(&mut clients);
-        //broadcast_messages(clients, incomming_messages);
+        broadcast_messages(&mut clients, incomming_messages);
         std::thread::sleep(Duration::from_millis(10));
     }
 }
