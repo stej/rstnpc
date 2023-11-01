@@ -11,13 +11,18 @@ struct ListenerArgs {
     host: String,
 }
 
-struct ConnectedClients {
-    clients: Vec<TcpStream>
+#[derive(Debug)]
+struct ConnectedClients<'a> {
+    clients: Vec<&'a mut TcpStream>
 }
 
-impl ConnectedClients { 
-    fn add(&mut self, client: TcpStream) {
+impl<'a> ConnectedClients<'a> { 
+    fn add(&mut self, client: &'a mut TcpStream) {
         self.clients.push(client);
+    }
+
+    fn new() -> Self {
+        Self { clients: Vec::new() }
     }
 }
 
@@ -36,16 +41,10 @@ fn read_message(stream: &mut TcpStream) -> Result<Message, Box<dyn Error>> {
     Ok(message)
 }
 
-fn handle_incomming_connection(clients: &mut ConnectedClients, stream: TcpStream) {
-    let addr = stream.peer_addr().unwrap();
-    println!("New connection from {}", addr);
-    clients.add(stream);
-}
-
-fn read_messages_from_clients<'t>(clients: &'t mut ConnectedClients) -> Vec<(Message, &'t mut TcpStream)> {
+fn read_messages_from_clients<'a>(clients: &'a mut ConnectedClients) -> Vec<(Message, &'a mut TcpStream)> {
     let mut temp_buff = [0u8; 1];
     let mut received = Vec::new();
-    for client in &mut clients.clients {
+    for client in clients.clients {
         let Ok(read_bytes) = client.peek(&mut temp_buff) else {
             continue;
         };
@@ -60,30 +59,38 @@ fn read_messages_from_clients<'t>(clients: &'t mut ConnectedClients) -> Vec<(Mes
     received
 }
 
-fn accept_connections(clients: &mut ConnectedClients, stream: Result<TcpStream, std::io::Error>) {
+fn accept_connection(stream: Result<TcpStream, std::io::Error>) -> Option<TcpStream> {
     match stream {
-        Ok(s) => handle_incomming_connection(clients, s),
-        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => (), // no pending connections
+        Ok(s) => Some(s),
+        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => None, // no pending connections
         Err(e) => panic!("Encountered IO error: {}", e),
     }
 }
 
-fn broadcast_messages<'t>(clients: &'t mut ConnectedClients, incomming_messages: Vec<(Message, &mut TcpStream)>) {
-    
+fn broadcast_messages<'t>(clients: &'t ConnectedClients, incomming_messages: Vec<(Message, &mut TcpStream)>) {
+    println!("{:?}", clients);
+    println!("{:?}", incomming_messages);
 }
 
 fn main() {
     let args = ListenerArgs::parse();
     println!("Listening on {}:{}", args.host, args.port);
 
-    let mut clients = ConnectedClients { clients: Vec::new() };
-    let listener = TcpListener::bind(format!("{}:{}", args.host, args.port)).unwrap();
-    listener.set_nonblocking(true).expect("Unable to set non-blocking");
+    let mut clients = ConnectedClients::new();
+    let listener = {
+        let listener = TcpListener::bind(format!("{}:{}", args.host, args.port)).unwrap();
+        listener.set_nonblocking(true).expect("Unable to set non-blocking");
+        listener
+    };
 
-    for stream in listener.incoming() {
-        accept_connections(&mut clients, stream);
+    for possible_stream in listener.incoming() {
+        if let Some(stream) = accept_connection(possible_stream) {
+            let addr = stream.peer_addr().unwrap();
+            println!("New connection from {}", addr);
+            clients.add(stream);
+        }
         let incomming_messages = read_messages_from_clients(&mut clients);
-        broadcast_messages(&mut clients, incomming_messages);
+        //broadcast_messages(clients, incomming_messages);
         std::thread::sleep(Duration::from_millis(10));
     }
 }
