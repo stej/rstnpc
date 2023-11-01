@@ -5,6 +5,7 @@ use std::error::Error;
 use shared::Message;    //https://github.com/Miosso/rust-workspace
 use std::fs;
 use std::time::Duration;
+use std::time::SystemTime;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 
@@ -23,7 +24,7 @@ fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<
         let path = Path::new(file_path);
         if path.exists() {
             let content = fs::read(path).unwrap();
-            Ok(Message::File { name: file_path.into(), content })
+            Ok(Message::File { name: path.file_name().unwrap().to_str().unwrap().into(), content })
         } else {
             Err(format!("File {} does not exist", file_path).into())
         }
@@ -59,10 +60,41 @@ fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<
     }
 }
 
+fn handle_message(message: &Message) {
+    fn save_general_file(name: &str, content: &[u8], directory: &str) -> Result<(), Box<dyn Error>> {
+        let dir = Path::new(directory);
+        if !dir.exists() { 
+            fs::create_dir(dir)?;
+        }
+        let file_path = dir.join(name);
+        fs::write(file_path, content)?;
+        Ok(())
+    }
+    fn save_file(name: &str, content: &[u8]) -> Result<(), Box<dyn Error>> {
+        save_general_file(name, content, "files")
+    }
+    fn save_img(content: &[u8]) -> Result<(), Box<dyn Error>> {
+        let name = format!("{}.png", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?.as_millis().to_string());
+        save_general_file(&name, content, "images")
+    }
+    match message {
+        Message::File { name, content } => { 
+            println!("Receiving {}", name);
+            save_file(name, content).unwrap()                                                 // todo 
+        },       
+        Message::Image(content) => {                                                // todo                
+            println!("Receiving image...");    
+            save_img(content).unwrap()
+        },
+        Message::Text(text) => println!("{}", text),
+        _ => ()
+    }
+}
+
 fn try_receive_message(stream: &mut TcpStream) {
     match Message::receive(stream) {
         Ok(Some(m)) => { 
-            println!("got {:?}", m);
+            handle_message(&m)
         },
         Ok(None) => {},
         Err(e) =>  {
