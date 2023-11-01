@@ -3,13 +3,13 @@ use bincode::Error as BincodeError;
 
 #[derive(Serialize, Deserialize, Debug)]
 
-pub enum MessageType {
+pub enum Message {
     Text(String),
     Image(Vec<u8>),
     File { name: String, content: Vec<u8> },
 }
 
-impl MessageType {
+impl Message {
     pub fn serialize(&self) -> Result<Vec<u8>, BincodeError> {
         bincode::serialize(&self)
     }
