@@ -1,10 +1,12 @@
 use std::path::Path;
-use std::io::Write;
+//use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::error::Error;
 use shared::Message;    //https://github.com/Miosso/rust-workspace
 use std::fs;
 use std::time::Duration;
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
 
 use clap::Parser;
 
@@ -16,18 +18,7 @@ struct ConnectionArgs {
     host: String,
 }
 
-fn send_message(message: &Message, tcp_stream: &mut TcpStream) -> Result<(), Box<dyn Error>> {
-    // let serialized_message = message.serialize()?;
-    // tcp_stream.write_all(&serialized_message)?;
-    // Ok(())
-    let data = message.serialize()?;
-    let data_len = data.len() as u32;
-    tcp_stream.write(& data_len.to_be_bytes())?;
-    tcp_stream.write_all(&data)?;
-    Ok(())
-}
-
-fn process_command(command: &str, tcp_stream: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+fn process_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<dyn Error>> {
     fn file_to_message(file_path: &str) -> Result<Message, Box<dyn Error>> {
         let path = Path::new(file_path);
         if path.exists() {
@@ -61,10 +52,22 @@ fn process_command(command: &str, tcp_stream: &mut TcpStream) -> Result<(), Box<
         };
     match message {
         Ok(message) => { 
-            println!("Sending message: {:?}", message);
-            send_message(&message, tcp_stream)
+            println!("-> {:?}", message);
+            //message.send_to(tcp_stream)
+            tx.send(message).map_err(|e| e.into())
         },
         Err(error) /*@ e*/ => Err(error)                            // todo zjednodusit?
+    }
+}
+
+fn try_receive_message(stream: &mut TcpStream) {
+    //match Message::try_receive(stream) {
+    match Message::receive(stream) {
+        Ok(Some(m)) => { 
+            println!("got {:?}", m);
+        },
+        Ok(None) => {},
+        Err(e) => eprintln!("Error reading message: {}", e)
     }
 }
 
@@ -74,21 +77,40 @@ fn main() {
 
     let addr = SocketAddr::new(args.host.parse().unwrap(), args.port);
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(30)).unwrap();
-    // let buf = b"Hello, world!";
-    // stream.write_all(buf).unwrap();
+    let remote = stream.local_addr().unwrap().to_string();
 
-
+    let (tx, rx) = mpsc::channel::<shared::Message>();
+    let stream_commander = std::thread::spawn(move || {
+        loop {
+            match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(message) => {
+                    message.send_to(&mut stream).expect("Unable to send message");
+                    if matches!(message, Message::ClientQuit(_)) {
+                        break;
+                    }
+                },
+                Err(_) => {
+                    // nothing to send, try to receive message
+                    try_receive_message(&mut stream)
+                }
+            }
+        }
+        println!("Exiting...");
+    });
+ 
     let stdin = std::io::stdin();
     loop {
         let mut line = String::new();
         let command_result = 
             match stdin.read_line(&mut line) {
                 Ok(_) if line.trim() == ".quit" => break,
-                Ok(_) => process_command(&line, &mut stream),
+                Ok(_) => process_command(&line, &tx),
                 Err(error) => Err(error.into()),
             };
         if let Err(e) = command_result {
             eprintln!("Error: {}", e);
         }
     }
+    tx.send(Message::ClientQuit(remote)).unwrap();
+    stream_commander.join().unwrap();
 }

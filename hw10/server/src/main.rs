@@ -1,5 +1,5 @@
 use clap::Parser;
-use std::{net::TcpListener, io::Read, error::Error, net::TcpStream, net::SocketAddr};
+use std::{net::TcpListener, net::TcpStream, net::SocketAddr};
 use shared::Message;
 use std::time::Duration;
 use std::collections::HashMap;
@@ -27,34 +27,29 @@ impl ConnectedClients {
     }
 }
 
-fn read_message(stream: &mut TcpStream) -> Result<Message, Box<dyn Error>> {
-    let data_len = {
-        let mut len_bytes = [0u8; 4];
-        stream.read_exact(&mut len_bytes)?;
-        u32::from_be_bytes(len_bytes) as usize
-    };
-    let message = {
-        let mut buffer =  vec![0u8; data_len];
-        stream.read_exact(&mut buffer)?;
-        Message::deserialize(&buffer)?
-    };
-    println!("Received message: {:?}", message);
-    Ok(message)
-}
-
 fn read_messages_from_clients(clients: &mut ConnectedClients) -> Vec<(Message, SocketAddr)> {
-    let mut temp_buff = [0u8; 1];
     let mut received = Vec::new();
     for (&addr, client) in &mut clients.clients {
-        let Ok(read_bytes) = client.peek(&mut temp_buff) else {
-            continue;
-        };
-        if read_bytes > 0 {
-            let msg = read_message(client);
-            match msg {
-                Ok(m) => received.push((m, addr)),
-                Err(e) => eprintln!("Error reading message: {}", e)
-            }
+        // let Ok(read_bytes) = client.peek(&mut temp_buff) else {
+        //     continue;
+        // };
+        // if read_bytes > 0 {
+        //     match Message::receive(client) {
+        //         Ok(m) => { 
+        //             println!("Received message: {:?}", m);
+        //             received.push((m, addr))
+        //         },
+        //         Err(e) => eprintln!("Error reading message: {}", e)
+        //     }
+        // }
+        //match Message::try_receive(client) {
+        match Message::receive(client) {
+            Ok(Some(m)) => { 
+                println!("+: {:?}", m);
+                received.push((m, addr))
+            },
+            Ok(None) => {},
+            Err(e) => eprintln!("Error reading message: {}", e)
         }
     }
     received
@@ -62,15 +57,48 @@ fn read_messages_from_clients(clients: &mut ConnectedClients) -> Vec<(Message, S
 
 fn accept_connection(stream: Result<TcpStream, std::io::Error>) -> Option<TcpStream> {
     match stream {
-        Ok(s) => Some(s),
+        Ok(s) => { 
+            let addr = s.peer_addr().unwrap();
+            println!("New connection from {}", addr);
+            s.set_nonblocking(false)
+                .expect("Unable to set non-blocking");
+            s.set_read_timeout(
+                Some(shared::STREAM_READ_TIMEOUT))
+                .expect("Unable to set read timeout");
+            Some(s) 
+        },
         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => None, // no pending connections
         Err(e) => panic!("Encountered IO error: {}", e),
     }
 }
+fn remove_dead_clients(clients: &mut ConnectedClients, incomming_messages: &Vec<(Message, SocketAddr)>) {
+    incomming_messages.iter()
+        .filter(|(m, _)| matches!(m, Message::ClientQuit(_)))
+        .map(|(_, addr)| addr)
+        .for_each(|addr| { 
+            println!("Removing client {}", addr);
+            clients.clients.remove(&addr).unwrap();
+        });
+}
 
-fn broadcast_messages(clients: &ConnectedClients, incomming_messages: Vec<(Message, SocketAddr)>) {
-    println!("{:?}", clients);
-    println!("{:?}", incomming_messages);
+fn broadcast_messages(clients: &mut ConnectedClients, incomming_messages: Vec<(Message, SocketAddr)>) {
+    if incomming_messages.len() == 0 {
+        return
+    }
+    println!("clients : {:?}", clients.clients.keys());
+    println!("messages: {:?}", incomming_messages);
+
+    for (msg, message_origin_address) in incomming_messages {
+        clients.clients
+            .iter_mut()
+            .filter(|(a, _)| **a != message_origin_address)
+            .for_each(|(_, c)| {
+                match msg.send_to(c) {
+                    Ok(_) => {},
+                    Err(e) => eprintln!("Error sending message: {}", e)
+                }
+            });
+    }
 }
 
 fn main() {
@@ -86,11 +114,10 @@ fn main() {
 
     for possible_stream in listener.incoming() {
         if let Some(stream) = accept_connection(possible_stream) {
-            let addr = stream.peer_addr().unwrap();
-            println!("New connection from {}", addr);
             clients.add(stream);
         }
         let incomming_messages = read_messages_from_clients(&mut clients);
+        remove_dead_clients(&mut clients, &incomming_messages);
         broadcast_messages(&mut clients, incomming_messages);
         std::thread::sleep(Duration::from_millis(10));
     }

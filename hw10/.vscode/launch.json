@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": [],
+            "args": ["-s", "127.0.0.1", "-p", "8080"],
             "cwd": "${workspaceFolder}"
         },
         {
