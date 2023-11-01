@@ -1,16 +1,18 @@
 use std::path::Path;
-use std::{net::TcpStream, io::Write};
+use std::{io::Write};
+use std::net::{SocketAddr, TcpStream, IpAddr};
 use std::error::Error;
 use shared::Message;    //https://github.com/Miosso/rust-workspace
 use std::fs;
+use std::time::Duration;
 
 use clap::Parser;
 
 #[derive(Parser)]
 struct ConnectionArgs {
-    #[arg(short, long)]
+    #[arg(short, long, default_value="11111")]
     port: u16,
-    #[arg(short='s', long)]
+    #[arg(short='s', long, default_value="localhost")]
     host: String,
 }
 
@@ -82,7 +84,8 @@ fn main() {
     let args = ConnectionArgs::parse();
     println!("Connecting to {}:{}", args.host, args.port);
 
-    let mut stream = TcpStream::connect(format!("{}:{}", args.host, args.port)).unwrap();
+    let addr = SocketAddr::new(args.host.parse().unwrap(), args.port);
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(30)).unwrap();
     // let buf = b"Hello, world!";
     // stream.write_all(buf).unwrap();
 
