@@ -14,7 +14,9 @@ pub struct YtItem {
     summary: String,
     reporter_login: String,
     project: String,
-    project_short: String
+    project_short: String,
+    assignee: String,
+    severity: String,
 }
 
 pub struct YtItems(Vec<YtItem>);
@@ -27,11 +29,30 @@ impl YtItem {
     const YT_ITEM_FIELD_REPORTERLOGIN: &str = "reporter/login";
     const YT_ITEM_FIELD_PROJECT: &str = "project/name";
     const YT_ITEM_FIELD_PROJECTSHORT: &str = "project/shortName";
+    const YT_ITEM_FIELD_ASSIGNEELOGIN: &str = "customFields/*name=Assignee/value/login";
+    const YT_ITEM_FIELD_SEVERITY: &str = "customFields/*name=Defect Severity/value/name";
 
     fn get_nested<'l>(item: &'l serde_json::Value, field_path: &str) -> &'l serde_json::Value {
+        fn find_in_array<'b>(item: &'b serde_json::Value, condition: &str) -> Option<&'b serde_json::Value> {
+            //println!("Array: {:?}", item);
+            let (field_name, field_value) = condition.split_once("=").unwrap();
+            let arr = item_as_array(item);
+            let item = arr
+                .iter()
+                .find(|item| item[field_name] == field_value)?;
+            //println!("Found: {:?}", item);
+            Some(item)
+        }
         match field_path.split_once("/") {
             None => &item[field_path],
-            Some((parent, rest)) => Self::get_nested(&item[parent], rest)
+            Some((parent, rest)) => { 
+                if !parent.is_empty() && matches!(parent.chars().nth(0), Some('*')) { 
+                    let item_in_array = find_in_array(item, &parent[1..]).expect("Unable to find item in array");
+                    Self::get_nested(item_in_array, rest)
+                } else { 
+                    Self::get_nested(&item[parent], rest)
+                }
+            }
         }
     }
 
@@ -58,6 +79,8 @@ impl YtItem {
         let reporter_login = Self::field_to_string(Self::YT_ITEM_FIELD_REPORTERLOGIN, item).expect("Unable to parse reporter");
         let project = Self::field_to_string(Self::YT_ITEM_FIELD_PROJECT, item).expect("Unable to parse project");
         let project_short = Self::field_to_string(Self::YT_ITEM_FIELD_PROJECTSHORT, item).expect("Unable to parse short project name");
+        let assignee_login = "".into(); //Self::field_to_string(Self::YT_ITEM_FIELD_ASSIGNEELOGIN, item).expect("Unable to parse assignee");
+        let severity = Self::field_to_string(Self::YT_ITEM_FIELD_SEVERITY, item).expect("Unable to parse severity");
         YtItem { 
                 id,
                 created,
@@ -65,13 +88,16 @@ impl YtItem {
                 summary,
                 reporter_login,
                 project,
-                project_short
+                project_short,
+                assignee: assignee_login,
+                severity
         }
     }
 }
 impl fmt::Display for YtItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "#{: >9}({}), c/u: {}/{} by: {:>12}: {}", self.id, self.project_short, self.created, self.updated, self.reporter_login, self.summary)
+        let severity_short: &str = self.severity.split_once(" ").map_or(&self.severity, |(l,r)| l);    //.to_string()
+        write!(f, "#{: >9}({}) {} c/u: {}/{} by: {:>12}, @{:>12}: {}", self.id, self.project_short, severity_short, self.created, self.updated, self.reporter_login, self.assignee, self.summary)
     }
 }
 
