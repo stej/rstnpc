@@ -53,6 +53,7 @@ async fn main() {
     let connection_info = ConnectionInfo::read();
 
     let query = prepare_query("#Bug #Resolved order by: updated desc");
+    //let query = prepare_query("issue id: CCJ-10617");
 
     match query_youtrack(&connection_info, &query, 10).await {
         Ok(response) => {
