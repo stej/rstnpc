@@ -38,16 +38,16 @@ fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<
         let path = Path::new(file_path);
         match path.extension().ok_or("Unable to get extension")?.to_str().ok_or("Unable to get extension")? {
             ".png"  => Ok(Message::Image(content)),
-            _  => Ok(Message::Image(content)),              // todo
+            _  => Ok(Message::Image(content)),              // todo convert?
         }
     }
 
     let command = command.trim();
     let message = 
         if command.starts_with(".file ") {
-            file_to_message(&command.replace(".file ", ""))     // todo slice?
+            file_to_message(&command[".file ".len()..])
         } else if command.starts_with(".image ") {
-            image_to_message(&command.replace(".image ", ""))   // todo slice?
+            image_to_message(&command[".image ".len()..])
         } else {
             Ok(Message::Text(command.into()))
         };

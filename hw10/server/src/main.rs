@@ -25,21 +25,28 @@ impl ConnectedClients {
     fn new() -> Self {
         Self { clients: HashMap::new() }
     }
-}
 
-fn read_messages_from_clients(clients: &mut ConnectedClients) -> Vec<(Message, SocketAddr)> {
-    let mut received = Vec::new();
-    for (&addr, client) in &mut clients.clients {
-        match Message::receive(client) {
-            Ok(Some(m)) => { 
-                println!("+: {:?}", m);
-                received.push((m, addr))
-            },
-            Ok(None) => {},
-            Err(e) => eprintln!("Error reading message: {}", e)
+    fn receive_messages(&mut self) -> Vec<(Message, SocketAddr)> {
+        let mut received = Vec::new();
+        for (&addr, client) in &mut self.clients {
+            match Message::receive(client) {
+                Ok(Some(m)) => { 
+                    println!("+: {:?}", m);
+                    received.push((m, addr))
+                },
+                Ok(None) => {},
+                Err(e) => eprintln!("Error reading message: {}", e)
+            }
         }
+        received
     }
-    received
+
+    fn remove(&mut self, clients_to_remove: &Vec<SocketAddr>) {
+        clients_to_remove.iter().for_each(|addr| { 
+            println!("Removing client {}", addr);
+            self.clients.remove(&addr).unwrap();
+        });
+    }
 }
 
 fn accept_connection(stream: Result<TcpStream, std::io::Error>) -> Option<TcpStream> {
@@ -59,13 +66,12 @@ fn accept_connection(stream: Result<TcpStream, std::io::Error>) -> Option<TcpStr
     }
 }
 fn remove_dead_clients(clients: &mut ConnectedClients, incomming_messages: &Vec<(Message, SocketAddr)>) {
-    incomming_messages.iter()
+    let clients_to_remove = 
+        incomming_messages.iter()
         .filter(|(m, _)| matches!(m, Message::ClientQuit(_)))
-        .map(|(_, addr)| addr)
-        .for_each(|addr| { 
-            println!("Removing client {}", addr);
-            clients.clients.remove(&addr).unwrap();
-        });
+        .map(|(_, addr)| addr.clone())
+        .collect();
+    clients.remove(&clients_to_remove);
 }
 
 fn broadcast_messages(clients: &mut ConnectedClients, incomming_messages: Vec<(Message, SocketAddr)>) {
@@ -103,7 +109,7 @@ fn main() {
         if let Some(stream) = accept_connection(possible_stream) {
             clients.add(stream);
         }
-        let incomming_messages = read_messages_from_clients(&mut clients);
+        let incomming_messages = clients.receive_messages();
         remove_dead_clients(&mut clients, &incomming_messages);
         broadcast_messages(&mut clients, incomming_messages);
         std::thread::sleep(Duration::from_millis(10));
