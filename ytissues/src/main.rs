@@ -1,5 +1,7 @@
 mod yt_item_processor;
 
+use yt_item_processor::{YtItems};
+
 struct ConnectionInfo {
     token: String,
     base_url: String,
@@ -60,7 +62,7 @@ async fn main() {
             // response is json, pretty print the response
             let json: serde_json::Value = serde_json::from_str(&response).unwrap();
             //yt_item_processor::describe_yt_items(&json);
-            let ytitems = yt_item_processor::parse_items(&json);
+            let ytitems = YtItems::parse(&json);
             println!("{}", ytitems)
         },
         Err(error) => println!("Error: {:?}", error),

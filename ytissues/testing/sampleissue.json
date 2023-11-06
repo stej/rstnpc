@@ -1,0 +1,297 @@
+[
+  {
+    "$type": "Issue",
+    "attachments": [
+      {
+        "$type": "IssueAttachment",
+        "author": {
+          "$type": "User",
+          "login": "pepa"
+        },
+        "created": 1697188249007,
+        "name": "LIFE INSURANCE"
+      }
+    ],
+    "commentsCount": 0,
+    "created": 1697175348075,
+    "customFields": [
+      {
+        "$type": "SingleEnumIssueCustomField",
+        "name": "Type",
+        "value": {
+          "$type": "EnumBundleElement",
+          "bundle": {
+            "$type": "EnumBundle"
+          },
+          "id": "57-5",
+          "name": "Bug"
+        }
+      },
+      {
+        "$type": "MultiUserIssueCustomField",
+        "name": "Assignee",
+        "value": [
+          {
+            "$type": "User",
+            "id": "1-291",
+            "login": "u.ser",
+            "name": "Some user"
+          }
+        ]
+      },
+      {
+        "$type": "MultiEnumIssueCustomField",
+        "name": "Team",
+        "value": []
+      },
+      {
+        "$type": "SimpleIssueCustomField",
+        "name": "Found In Version(s)",
+        "value": "23.08.0.0"
+      },
+      {
+        "$type": "SingleVersionIssueCustomField",
+        "name": "Target Release",
+        "value": null
+      },
+      {
+        "$type": "SingleEnumIssueCustomField",
+        "name": "Defect Severity",
+        "value": {
+          "$type": "EnumBundleElement",
+          "bundle": {
+            "$type": "EnumBundle"
+          },
+          "id": "57-47",
+          "name": "L2 Major"
+        }
+      },
+      {
+        "$type": "SingleEnumIssueCustomField",
+        "name": "Priority",
+        "value": {
+          "$type": "EnumBundleElement",
+          "bundle": {
+            "$type": "EnumBundle"
+          },
+          "id": "57-2",
+          "name": "Medium"
+        }
+      },
+      {
+        "$type": "SingleEnumIssueCustomField",
+        "name": "Found by autotest",
+        "value": null
+      },
+      {
+        "$type": "StateMachineIssueCustomField",
+        "name": "State",
+        "value": {
+          "$type": "StateBundleElement",
+          "bundle": {
+            "$type": "StateBundle"
+          },
+          "id": "59-19",
+          "name": "Fixed"
+        }
+      },
+      {
+        "$type": "MultiVersionIssueCustomField",
+        "name": "Fixed in Version",
+        "value": [
+          {
+            "$type": "VersionBundleElement",
+            "bundle": {
+              "$type": "VersionBundle"
+            },
+            "id": "114-67858",
+            "name": "23.10.0.0"
+          }
+        ]
+      },
+      {
+        "$type": "MultiVersionIssueCustomField",
+        "name": "Verified in Version",
+        "value": []
+      },
+      {
+        "$type": "SingleEnumIssueCustomField",
+        "name": "Hotfix Needed",
+        "value": {
+          "$type": "EnumBundleElement",
+          "bundle": {
+            "$type": "EnumBundle"
+          },
+          "id": "57-1431",
+          "name": "Yes"
+        }
+      },
+      {
+        "$type": "SingleEnumIssueCustomField",
+        "name": "Default changed",
+        "value": {
+          "$type": "EnumBundleElement",
+          "bundle": {
+            "$type": "EnumBundle"
+          },
+          "id": "57-130",
+          "name": "No"
+        }
+      },
+      {
+        "$type": "PeriodIssueCustomField",
+        "name": "Estimation",
+        "value": null
+      },
+      {
+        "$type": "PeriodIssueCustomField",
+        "name": "Spent time",
+        "value": null
+      },
+      {
+        "$type": "SingleEnumIssueCustomField",
+        "name": "SLA fullfiled",
+        "value": null
+      },
+      {
+        "$type": "MultiVersionIssueCustomField",
+        "name": "Sprints",
+        "value": []
+      }    ],
+    "description": "**Steps to reproduce:**\n\n* **Duplicate**\n  * ~~get a time machine, go back to 2017, buy some bitc..~~",
+    "idReadable": "ABC-10617",
+    "isDraft": false,
+    "links": [
+      {
+        "$type": "IssueLink",
+        "direction": "BOTH",
+        "issues": [],
+        "linkType": {
+          "$type": "IssueLinkType",
+          "directed": false,
+          "name": "Relates",
+          "sourceToTarget": "relates to"
+        }
+      },
+      {
+        "$type": "IssueLink",
+        "direction": "OUTWARD",
+        "issues": [],
+        "linkType": {
+          "$type": "IssueLinkType",
+          "directed": true,
+          "name": "Depend",
+          "sourceToTarget": "is required for"
+        }
+      },
+      {
+        "$type": "IssueLink",
+        "direction": "INWARD",
+        "issues": [],
+        "linkType": {
+          "$type": "IssueLinkType",
+          "directed": true,
+          "name": "Depend",
+          "sourceToTarget": "is required for"
+        }
+      },
+      {
+        "$type": "IssueLink",
+        "direction": "OUTWARD",
+        "issues": [],
+        "linkType": {
+          "$type": "IssueLinkType",
+          "directed": true,
+          "name": "Duplicate",
+          "sourceToTarget": "is duplicated by"
+        }
+      },
+      {
+        "$type": "IssueLink",
+        "direction": "INWARD",
+        "issues": [],
+        "linkType": {
+          "$type": "IssueLinkType",
+          "directed": true,
+          "name": "Duplicate",
+          "sourceToTarget": "is duplicated by"
+        }
+      },
+      {
+        "$type": "IssueLink",
+        "direction": "OUTWARD",
+        "issues": [],
+        "linkType": {
+          "$type": "IssueLinkType",
+          "directed": true,
+          "name": "Subtask",
+          "sourceToTarget": "parent for"
+        }
+      },
+      {
+        "$type": "IssueLink",
+        "direction": "INWARD",
+        "issues": [],
+        "linkType": {
+          "$type": "IssueLinkType",
+          "directed": true,
+          "name": "Subtask",
+          "sourceToTarget": "parent for"
+        }
+      }
+    ],
+    "numberInProject": 10617,
+    "parent": {
+      "$type": "IssueLink"
+    },
+    "project": {
+      "$type": "Project",
+      "description": "Product",
+      "leader": {
+        "$type": "User",
+        "login": "u.serleader"
+      },
+      "name": "Project ABC",
+      "shortName": "ABC"
+    },
+    "reporter": {
+      "$type": "User",
+      "fullName": "Youtrack Integration",
+      "login": "u.reporter"
+    },
+    "resolved": 1697206805272,
+    "subtasks": {
+      "$type": "IssueLink",
+      "direction": "OUTWARD",
+      "issues": []
+    },
+    "summary": "Unable to import data created in 2017 or sooner",
+    "tags": [
+      {
+        "$type": "Tag"
+      },
+      {
+        "$type": "Tag"
+      }
+    ],
+    "updated": 1697206805555,
+    "updater": {
+      "$type": "User",
+      "fullName": "Some User",
+      "login": "u.ser"
+    },
+    "usesMarkdown": true,
+    "visibility": {
+      "$type": "UnlimitedVisibility"
+    },
+    "voters": {
+      "$type": "IssueVoters",
+      "original": []
+    },
+    "votes": 0,
+    "watchers": {
+      "$type": "IssueWatchers"
+    },
+    "wikifiedDescription": "wiki desc here"
+  }
+]
