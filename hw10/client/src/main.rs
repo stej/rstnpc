@@ -1,21 +1,21 @@
 use core::panic;
-use std::path::Path;
-use std::net::{SocketAddr, TcpStream};
+use shared::Message; //https://github.com/Miosso/rust-workspace
 use std::error::Error;
-use shared::Message;    //https://github.com/Miosso/rust-workspace
 use std::fs;
-use std::time::Duration;
-use std::time::SystemTime;
+use std::net::{SocketAddr, TcpStream};
+use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
+use std::time::Duration;
+use std::time::SystemTime;
 
 use clap::Parser;
 
 #[derive(Parser)]
 struct ConnectionArgs {
-    #[arg(short, long, default_value="11111")]
+    #[arg(short, long, default_value = "11111")]
     port: u16,
-    #[arg(short='s', long, default_value="localhost")]
+    #[arg(short = 's', long, default_value = "localhost")]
     host: String,
 }
 
@@ -24,7 +24,10 @@ fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<
         let path = Path::new(file_path);
         if path.exists() {
             let content = fs::read(path).unwrap();
-            Ok(Message::File { name: path.file_name().unwrap().to_str().unwrap().into(), content })
+            Ok(Message::File {
+                name: path.file_name().unwrap().to_str().unwrap().into(),
+                content,
+            })
         } else {
             Err(format!("File {} does not exist", file_path).into())
         }
@@ -32,27 +35,31 @@ fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<
 
     fn image_to_message(file_path: &str) -> Result<Message, Box<dyn Error>> {
         let file = file_to_message(file_path)?;
-        let Message::File{name: _, content} = file else {
+        let Message::File { name: _, content } = file else {
             panic!("Expected file, but got {:?}", file);
         };
         let path = Path::new(file_path);
-        match path.extension().ok_or("Unable to get extension")?.to_str().ok_or("Unable to get extension")? {
-            ".png"  => Ok(Message::Image(content)),
-            _  => Ok(Message::Image(content)),              // todo convert?
+        match path
+            .extension()
+            .ok_or("Unable to get extension")?
+            .to_str()
+            .ok_or("Unable to get extension")?
+        {
+            ".png" => Ok(Message::Image(content)),
+            _ => Ok(Message::Image(content)),
         }
     }
 
     let command = command.trim();
-    let message = 
-        if command.starts_with(".file ") {
-            file_to_message(&command[".file ".len()..])
-        } else if command.starts_with(".image ") {
-            image_to_message(&command[".image ".len()..])
-        } else {
-            Ok(Message::Text(command.into()))
-        };
+    let message = if command.starts_with(".file ") {
+        file_to_message(&command[".file ".len()..])
+    } else if command.starts_with(".image ") {
+        image_to_message(&command[".image ".len()..])
+    } else {
+        Ok(Message::Text(command.into()))
+    };
     match message {
-        Ok(message) => { 
+        Ok(message) => {
             println!("-> {:?}", message);
             tx.send(message).map_err(|e| e.into())
         },
@@ -61,9 +68,13 @@ fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<
 }
 
 fn handle_message(message: &Message) {
-    fn save_general_file(name: &str, content: &[u8], directory: &str) -> Result<(), Box<dyn Error>> {
+    fn save_general_file(
+        name: &str,
+        content: &[u8],
+        directory: &str,
+    ) -> Result<(), Box<dyn Error>> {
         let dir = Path::new(directory);
-        if !dir.exists() { 
+        if !dir.exists() {
             fs::create_dir(dir)?;
         }
         let file_path = dir.join(name);
@@ -74,7 +85,13 @@ fn handle_message(message: &Message) {
         save_general_file(name, content, "files")
     }
     fn save_img(content: &[u8]) -> Result<(), Box<dyn Error>> {
-        let name = format!("{}.png", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?.as_millis().to_string());
+        let name = format!(
+            "{}.png",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)?
+                .as_millis()
+                .to_string()
+        );
         save_general_file(&name, content, "images")
     }
     match message {
@@ -93,14 +110,12 @@ fn handle_message(message: &Message) {
 
 fn try_receive_message(stream: &mut TcpStream) {
     match Message::receive(stream) {
-        Ok(Some(m)) => { 
-            handle_message(&m)
-        },
-        Ok(None) => {},
-        Err(e) =>  {
+        Ok(Some(m)) => handle_message(&m),
+        Ok(None) => {}
+        Err(e) => {
             // this would be great to have a reason of the error - e.g. server disconnected
-            // match e.kind() { 
-            //     std::io::ErrorKind::ConnectionAborted | 
+            // match e.kind() {
+            //     std::io::ErrorKind::ConnectionAborted |
             //     std::io::ErrorKind::ConnectionReset |
             //     std::io::ErrorKind::ConnectionRefused => {
             //         panic!("Connection closed by server");
@@ -125,11 +140,13 @@ fn main() {
         loop {
             match rx.recv_timeout(std::time::Duration::from_millis(100)) {
                 Ok(message) => {
-                    message.send_to(&mut stream).expect("Unable to send message");
+                    message
+                        .send_to(&mut stream)
+                        .expect("Unable to send message");
                     if matches!(message, Message::ClientQuit(_)) {
                         break;
                     }
-                },
+                }
                 Err(_) => {
                     // nothing to send, try to receive message
                     try_receive_message(&mut stream)
@@ -138,16 +155,15 @@ fn main() {
         }
         println!("Exiting...");
     });
- 
+
     let stdin = std::io::stdin();
     loop {
         let mut line = String::new();
-        let command_result = 
-            match stdin.read_line(&mut line) {
-                Ok(_) if line.trim() == ".quit" => break,
-                Ok(_) => process_stdin_command(&line, &tx),
-                Err(error) => Err(error.into()),
-            };
+        let command_result = match stdin.read_line(&mut line) {
+            Ok(_) if line.trim() == ".quit" => break,
+            Ok(_) => process_stdin_command(&line, &tx),
+            Err(error) => Err(error.into()),
+        };
         if let Err(e) = command_result {
             eprintln!("Error: {}", e);
         }

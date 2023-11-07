@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
 use bincode::Error as BincodeError;
+use serde::{Deserialize, Serialize};
 
-use std::net::TcpStream;
-use std::io::{Write, Read};
 use std::error::Error;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 
 use std::time::Duration;
 
@@ -13,10 +13,10 @@ pub enum Message {
     Text(String),
     Image(Vec<u8>),
     File { name: String, content: Vec<u8> },
-    ClientQuit(String)
+    ClientQuit(String),
 }
 
-pub const STREAM_READ_TIMEOUT : Duration = Duration::from_millis(100);
+pub const STREAM_READ_TIMEOUT: Duration = Duration::from_millis(100);
 
 impl Message {
     pub fn serialize(&self) -> Result<Vec<u8>, BincodeError> {
@@ -29,7 +29,7 @@ impl Message {
     pub fn send_to(&self, tcp_stream: &mut TcpStream) -> Result<(), Box<dyn Error>> {
         let data = self.serialize()?;
         let data_len = data.len() as u32;
-        tcp_stream.write(& data_len.to_be_bytes())?;
+        tcp_stream.write(&data_len.to_be_bytes())?;
         tcp_stream.write_all(&data)?;
         Ok(())
     }
@@ -50,19 +50,22 @@ impl Message {
                 Ok(_) => u32::from_be_bytes(len_bytes) as usize,
                 Err(e) => {
                     match e.kind() {
-                        std::io::ErrorKind::TimedOut => return Ok(None),     //timeout
-                        std::io::ErrorKind::Interrupted => return Ok(None),     //timeout   - takhle je to v dokumentaci read_exact; ale ve skutecnosti hazi TimedOut
-                        std::io::ErrorKind::UnexpectedEof => return Ok(None),   //client disconnected
-                        _ => { println!("{:?}, kind: {}", e, e.kind()); return Err(Box::new(e)) }
+                        std::io::ErrorKind::TimedOut => return Ok(None), //timeout
+                        std::io::ErrorKind::Interrupted => return Ok(None), //timeout   - takhle je to v dokumentaci read_exact; ale ve skutecnosti hazi TimedOut
+                        std::io::ErrorKind::UnexpectedEof => return Ok(None), //client disconnected
+                        _ => {
+                            println!("{:?}, kind: {}", e, e.kind());
+                            return Err(Box::new(e));
+                        }
                     }
-                },
+                }
             }
         };
         // note: not sure how to return error properly
         // I'd like to have error that contains information about connection error (e.g. client disconnected) as well about the deserialization error
-        // enum? 
+        // enum?
         let message = {
-            let mut buffer =  vec![0u8; data_len];
+            let mut buffer = vec![0u8; data_len];
             stream.read_exact(&mut buffer)?;
             Message::deserialize(&buffer)?
         };
