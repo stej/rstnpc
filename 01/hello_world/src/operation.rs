@@ -1,7 +1,7 @@
-use std::str::FromStr;
+use std::error::Error;
 use std::fs::read_to_string;
 use std::path::Path;
-use std::error::Error;
+use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Operation {
@@ -12,7 +12,7 @@ pub enum Operation {
     Len,
     Reverse,
     Csv,
-    Exit
+    Exit,
 }
 
 impl FromStr for Operation {
@@ -26,7 +26,7 @@ impl FromStr for Operation {
             "len" => Ok(Operation::Len),
             "reverse" => Ok(Operation::Reverse),
             "csv" => Ok(Operation::Csv),
-            _ => Err(format!("Unknown operation: {}", s))
+            _ => Err(format!("Unknown operation: {}", s)),
         }
     }
 }
@@ -42,27 +42,32 @@ impl OperationWithParam {
         Self::new(Operation::Exit, String::new())
     }
     pub fn new(operation: Operation, param: String) -> Self {
-        Self { operation, param}
+        Self { operation, param }
     }
 
     /// If the parameter is a path to a file, read the file and return the content.
     /// Otherwise, return the parameter as is.
-    /// 
+    ///
     /// Note: it was requested to work only for CSV files, but looks like good idea to do it for all files.
     pub fn standardize(&self) -> Result<OperationWithParam, Box<dyn Error>> {
         let param = &self.param;
         let trimmed = param.trim();
         let path = Path::new(trimmed);
         if !path.is_file() {
-            return Ok(OperationWithParam::new(self.operation.clone(), trimmed.into()))
+            return Ok(OperationWithParam::new(
+                self.operation.clone(),
+                trimmed.into(),
+            ));
         }
         if !path.exists() {
             return Err(format!("File does not exist: {}", path.display()).into());
         }
-        let file_content = 
-            read_to_string(&path)
-            .map_err(|err| format!("Unable to read file: {}", err))?;
-        Ok(OperationWithParam::new(self.operation.clone(), file_content))
+        let file_content =
+            read_to_string(&path).map_err(|err| format!("Unable to read file: {}", err))?;
+        Ok(OperationWithParam::new(
+            self.operation.clone(),
+            file_content,
+        ))
     }
 }
 

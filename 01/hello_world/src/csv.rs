@@ -1,6 +1,6 @@
-use std::{error::Error, fmt::Display};
-use std::fmt::Formatter;
 use std::fmt;
+use std::fmt::Formatter;
+use std::{error::Error, fmt::Display};
 
 pub struct Csv {
     header: Strings,
@@ -18,62 +18,59 @@ impl Csv {
         let header = Self::parse_line(lines.next().ok_or("no header")?);
 
         // parse
-        let rows : Vec<Strings> = 
-            lines
-                .map(|line| { Self::parse_line(line) })
-                .collect();
+        let rows: Vec<Strings> = lines.map(|line| Self::parse_line(line)).collect();
 
         // validate
         let any_header_empty: bool = header.iter().any(|h| h.is_empty());
         if any_header_empty {
             return Err("error parsing csv - empty header".into());
         }
-        let all_size_as_header = rows
-                            .iter()
-                            .all(|row| row.len() == header.len());
-        if !all_size_as_header{
+        let all_size_as_header = rows.iter().all(|row| row.len() == header.len());
+        if !all_size_as_header {
             return Err("error parsing csv - incorrect cols count".into());
         }
         if rows.is_empty() {
             eprintln!("warning: empty csv");
         }
-        Ok(Csv{ header, rows })
+        Ok(Csv { header, rows })
     }
 
     fn get_cols_widths(&self) -> Vec<usize> {
-        self.header.iter().enumerate()
-            .map(|(i, header)|
+        self.header
+            .iter()
+            .enumerate()
+            .map(|(i, header)| {
                 std::cmp::max(
-                    header.len(), 
-                    self.rows.iter()
-                        .map(|row| row[i].len())
-                        .max()
-                        .unwrap_or(0)))
+                    header.len(),
+                    self.rows.iter().map(|row| row[i].len()).max().unwrap_or(0),
+                )
+            })
             .collect()
     }
 
     fn stringify(&self) -> String {
-
         fn row_to_string(row: &Strings, cols_widths: &[usize]) -> String {
-            row.iter().enumerate()
-                .map(|(i, col)| format!("{:width$}", col, width=cols_widths[i]))
+            row.iter()
+                .enumerate()
+                .map(|(i, col)| format!("{:width$}", col, width = cols_widths[i]))
                 .collect::<Vec<String>>()
                 .join("|")
         }
 
         fn get_header_separator(cols_widths: &[usize]) -> String {
-            let width = 
-                cols_widths.iter().sum::<usize>() +  // cell width
-                cols_widths.len() - 1;       // separator
+            let width = cols_widths.iter().sum::<usize>() +  // cell width
+                cols_widths.len()
+                - 1; // separator
             String::from("-").repeat(width)
         }
         let cols_widths = Self::get_cols_widths(self);
         let header = row_to_string(&self.header, &cols_widths);
-        let rows = 
-            self.rows.iter()
-                .map(|r| row_to_string(r, &cols_widths))
-                .collect::<Vec<String>>()
-                .join("\n");
+        let rows = self
+            .rows
+            .iter()
+            .map(|r| row_to_string(r, &cols_widths))
+            .collect::<Vec<String>>()
+            .join("\n");
         header + "\n" + &get_header_separator(&cols_widths) + "\n" + &rows
     }
 }
@@ -219,7 +216,11 @@ mod tests_display {
         \nsomelon|ab|             \
         \n       |  |somelongagain\
         \na      |b |c            ";
-        assert_eq!(display, Csv::parse("asome,b,dsome\nc,d,adf\nsomelon,ab,\n,,somelongagain\na,b,c").unwrap().to_string());
-
+        assert_eq!(
+            display,
+            Csv::parse("asome,b,dsome\nc,d,adf\nsomelon,ab,\n,,somelongagain\na,b,c")
+                .unwrap()
+                .to_string()
+        );
     }
 }
