@@ -118,6 +118,9 @@ fn main() {
         handle_operation_from_cmdline(&args[1], send);
     } else {
         println!("Type empty line to exit.");
+
+        // note: the hw task is saying "Spin up two threads: one dedicated to receiving input and another for processing it."
+        // That's the only reason I'm creating a thread here. Otherwise the main thread would be perfectly fine.
         thread::spawn(move || {
             let mut line = String::new();
             loop {

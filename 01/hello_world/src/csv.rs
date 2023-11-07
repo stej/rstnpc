@@ -1,6 +1,6 @@
 use std::{error::Error, fmt::Display};
 use std::fmt::Formatter;
-use std::{fmt};
+use std::fmt;
 
 pub struct Csv {
     header: Strings,
@@ -34,13 +34,10 @@ impl Csv {
         if !all_size_as_header{
             return Err("error parsing csv - incorrect cols count".into());
         }
-        if rows.len() == 0 {
+        if rows.is_empty() {
             eprintln!("warning: empty csv");
         }
-        Ok(Csv{
-            header: header,
-            rows: rows,
-        })
+        Ok(Csv{ header, rows })
     }
 
     fn get_cols_widths(&self) -> Vec<usize> {
@@ -57,14 +54,14 @@ impl Csv {
 
     fn stringify(&self) -> String {
 
-        fn row_to_string(row: &Strings, cols_widths: &Vec<usize>) -> String {
+        fn row_to_string(row: &Strings, cols_widths: &[usize]) -> String {
             row.iter().enumerate()
                 .map(|(i, col)| format!("{:width$}", col, width=cols_widths[i]))
                 .collect::<Vec<String>>()
                 .join("|")
         }
 
-        fn get_header_separator(cols_widths: Vec<usize>) -> String {
+        fn get_header_separator(cols_widths: &[usize]) -> String {
             let width = 
                 cols_widths.iter().sum::<usize>() +  // cell width
                 cols_widths.len() - 1;       // separator
@@ -77,7 +74,7 @@ impl Csv {
                 .map(|r| row_to_string(r, &cols_widths))
                 .collect::<Vec<String>>()
                 .join("\n");
-        header + "\n" + &get_header_separator(cols_widths) + "\n" + &rows
+        header + "\n" + &get_header_separator(&cols_widths) + "\n" + &rows
     }
 }
 
@@ -115,7 +112,7 @@ mod tests_parse {
     fn simple_1col() {
         let csv = Csv::parse("a").unwrap();
         assert_eq!(vec!["a"], csv.header);
-        assert_eq!(0, csv.rows.len());
+        assert!(csv.rows.is_empty());
 
         let csv = Csv::parse("a\nb").unwrap();
         assert_eq!(vec!["a"], csv.header);
@@ -130,7 +127,7 @@ mod tests_parse {
     fn simple_2col() {
         let csv = Csv::parse("a,a2").unwrap();
         assert_eq!(vec!["a", "a2"], csv.header);
-        assert_eq!(0, csv.rows.len());
+        assert!(csv.rows.is_empty());
 
         let csv = Csv::parse("a,a2\nb,b2").unwrap();
         assert_eq!(vec!["a", "a2"], csv.header);
