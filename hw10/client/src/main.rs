@@ -94,17 +94,23 @@ fn handle_message(message: &Message) {
         );
         save_general_file(&name, content, "images")
     }
-    match message {
-        Message::File { name, content } => { 
+    let message_result = match message {
+        Message::File { name, content } => {
             println!("Receiving {}", name);
-            save_file(name, content).unwrap()                                                 // todo 
-        },       
-        Message::Image(content) => {                                                // todo                
-            println!("Receiving image...");    
-            save_img(content).unwrap()
-        },
-        Message::Text(text) => println!("{}", text),
-        _ => ()
+            save_file(name, content)
+        }
+        Message::Image(content) => {
+            println!("Receiving image...");
+            save_img(content)
+        }
+        Message::Text(text) => {
+            println!("{}", text);
+            Ok(())
+        }
+        _ => Ok(()),
+    };
+    if let Err(e) = message_result {
+        eprintln!("Error: {}", e);
     }
 }
 
