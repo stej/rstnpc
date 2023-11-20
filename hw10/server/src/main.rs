@@ -3,6 +3,7 @@ use shared::Message;
 use std::collections::HashMap;
 use std::time::Duration;
 use std::{net::SocketAddr, net::TcpListener, net::TcpStream};
+use log::{info, debug, error};
 
 #[derive(Parser)]
 struct ListenerArgs {
@@ -33,11 +34,15 @@ impl ConnectedClients {
         for (&addr, client) in &mut self.clients {
             match Message::receive(client) {
                 Ok(Some(m)) => {
-                    println!("+: {:?}", m);
-                    received.push((m, addr))
+                    received.push((m, addr));
                 }
                 Ok(None) => {}
-                Err(e) => eprintln!("Error reading message: {}", e),
+                Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {
+                    received.push((Message::ClientQuit("".into()), addr))
+                }
+                Err(e) => { 
+                    eprintln!("Error reading message: {:?}", e)
+                },
             }
         }
         received
@@ -45,7 +50,7 @@ impl ConnectedClients {
 
     fn remove(&mut self, clients_to_remove: &Vec<SocketAddr>) {
         clients_to_remove.iter().for_each(|addr| {
-            println!("Removing client {}", addr);
+            debug!("Removing client {}", addr);
             self.clients.remove(&addr).unwrap();
         });
     }
@@ -55,7 +60,7 @@ fn accept_connection(stream: Result<TcpStream, std::io::Error>) -> Option<TcpStr
     match stream {
         Ok(s) => {
             let addr = s.peer_addr().unwrap();
-            println!("New connection from {}", addr);
+            debug!("New connection from {}", addr);
             s.set_nonblocking(false)
                 .expect("Unable to set non-blocking");
             s.set_read_timeout(Some(shared::STREAM_READ_TIMEOUT))
@@ -74,7 +79,11 @@ fn remove_dead_clients(
         .iter()
         .filter(|(m, _)| matches!(m, Message::ClientQuit(_)))
         .map(|(_, addr)| addr.clone())
-        .collect();
+        .collect::<Vec<SocketAddr>>();
+    if clients_to_remove.is_empty() {
+        return;
+    }
+    debug!("Removing clients: {:?}", clients_to_remove);
     clients.remove(&clients_to_remove);
 }
 
@@ -85,8 +94,8 @@ fn broadcast_messages(
     if incomming_messages.len() == 0 {
         return;
     }
-    println!("clients : {:?}", clients.clients.keys());
-    println!("messages: {:?}", incomming_messages);
+    debug!("clients : {:?}", clients.clients.keys());
+    debug!("messages: {:?}", incomming_messages);
 
     for (msg, message_origin_address) in incomming_messages {
         clients
@@ -95,14 +104,16 @@ fn broadcast_messages(
             .filter(|(a, _)| **a != message_origin_address)
             .for_each(|(_, c)| match msg.send_to(c) {
                 Ok(_) => {}
-                Err(e) => eprintln!("Error sending message: {}", e),
+                Err(e) => error!("Error sending message: {}", e),
             });
     }
 }
 
 fn main() {
+    shared::logging::init();
+
     let args = ListenerArgs::parse();
-    println!("Listening on {}:{}", args.host, args.port);
+    info!("Listening on {}:{}", args.host, args.port);
 
     let mut clients = ConnectedClients::new();
     let listener = {
@@ -115,6 +126,7 @@ fn main() {
 
     for possible_stream in listener.incoming() {
         if let Some(stream) = accept_connection(possible_stream) {
+
             clients.add(stream);
         }
         let incomming_messages = clients.receive_messages();

@@ -8,8 +8,8 @@ use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 use std::time::SystemTime;
-
 use clap::Parser;
+use log::{info, debug, error};
 
 #[derive(Parser)]
 struct ConnectionArgs {
@@ -60,7 +60,7 @@ fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<
     };
     match message {
         Ok(message) => {
-            println!("-> {:?}", message);
+            debug!("-> {:?}", message);
             tx.send(message).map_err(|e| e.into())
         },
         Err(error) /*@ e*/ => Err(error)                            // todo zjednodusit?
@@ -110,7 +110,7 @@ fn handle_message(message: &Message) {
         _ => Ok(()),
     };
     if let Err(e) = message_result {
-        eprintln!("Error: {}", e);
+        error!("{}", e);
     }
 }
 
@@ -128,14 +128,16 @@ fn try_receive_message(stream: &mut TcpStream) {
             //     },
             //     _ => eprintln!("Error reading message: {}", e)
             // }
-            eprintln!("Error reading message: {}", e)
+            error!("Error reading message: {}", e)
         }
     }
 }
 
 fn main() {
+    shared::logging::init();
+
     let args = ConnectionArgs::parse();
-    println!("Connecting to {}:{}", args.host, args.port);
+    info!("Connecting to {}:{}", args.host, args.port);
 
     let addr = SocketAddr::new(args.host.parse().unwrap(), args.port);
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(30)).unwrap();
@@ -159,7 +161,7 @@ fn main() {
                 }
             }
         }
-        println!("Exiting...");
+        info!("Exiting...");
     });
 
     let stdin = std::io::stdin();
@@ -171,7 +173,7 @@ fn main() {
             Err(error) => Err(error.into()),
         };
         if let Err(e) = command_result {
-            eprintln!("Error: {}", e);
+            error!("{}", e);
         }
     }
     tx.send(Message::ClientQuit(remote)).unwrap();
