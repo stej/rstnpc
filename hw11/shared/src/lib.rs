@@ -18,6 +18,16 @@ pub enum Message {
 
 pub const STREAM_READ_TIMEOUT: Duration = Duration::from_millis(100);
 
+#[derive(thiserror::Error, Debug)]
+pub enum ReceiveMessageError {
+    #[error("Connection error")]
+    StreamError(#[from] std::io::Error),
+    #[error("Client disconnected")]
+    ClientDisconnected(#[source] std::io::Error),
+    #[error("Unable to deserialize message")]
+    DeserializationError(#[from] BincodeError),
+}
+
 impl Message {
     pub fn serialize(&self) -> Result<Vec<u8>, BincodeError> {
         bincode::serialize(&self)
@@ -39,7 +49,8 @@ impl Message {
     // I don't want to block the thread if there is nothing to do - that's why I seet timeout for initial lenght read; but after that if we have a len, let's wait forever
     // but ... what if the client is really slow when sending the message?
     // and part of the bytes (the length) is sent, but the rest is not?
-    pub fn receive(stream: &mut TcpStream) -> Result<Option<Message>, Box<dyn Error>> {
+    pub fn receive(stream: &mut TcpStream) -> Result<Option<Message>, ReceiveMessageError> {
+        use ReceiveMessageError::*;
         let timeout_original = stream.read_timeout().unwrap_or(None);
         stream.set_read_timeout(Some(STREAM_READ_TIMEOUT))?;
         let data_len = {
@@ -52,10 +63,10 @@ impl Message {
                     match e.kind() {
                         std::io::ErrorKind::TimedOut => return Ok(None), //timeout
                         std::io::ErrorKind::Interrupted => return Ok(None), //timeout   - takhle je to v dokumentaci read_exact; ale ve skutecnosti hazi TimedOut
-                        std::io::ErrorKind::UnexpectedEof => return Ok(None), //client disconnected
+                        std::io::ErrorKind::UnexpectedEof => return Err(ClientDisconnected(e)), //client disconnected
                         _ => {
-                            println!("{:?}, kind: {}", e, e.kind());
-                            return Err(Box::new(e));
+                            //println!("{:?}, kind: {}", e, e.kind());
+                            return Err(ClientDisconnected(e));
                         }
                     }
                 }

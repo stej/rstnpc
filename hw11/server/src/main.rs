@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{net::SocketAddr, net::TcpListener, net::TcpStream};
 use log::{info, debug, error};
+use shared::ReceiveMessageError::*;
 
+// looks like common code for client and server, but this is not typical dry sample
 #[derive(Parser)]
 struct ListenerArgs {
     #[arg(short, long, default_value = "11111")]
@@ -37,11 +39,15 @@ impl ConnectedClients {
                     received.push((m, addr));
                 }
                 Ok(None) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {
+                Err(ClientDisconnected(e)) => {
+                    debug!("Client {} disconnected. Error: {}", addr, e);
                     received.push((Message::ClientQuit("".into()), addr))
                 }
-                Err(e) => { 
-                    eprintln!("Error reading message: {:?}", e)
+                Err(StreamError(e)) => { 
+                    error!("Client {} stream problems. Error: {}", addr, e);
+                },
+                Err(DeserializationError(e)) => { 
+                    error!("Client {} sent malformed message. Error: {}", addr, e);
                 },
             }
         }

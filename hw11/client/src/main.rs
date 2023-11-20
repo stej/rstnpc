@@ -11,6 +11,7 @@ use std::time::SystemTime;
 use clap::Parser;
 use log::{info, debug, error};
 
+// looks like common code for client and server, but this is not typical dry sample
 #[derive(Parser)]
 struct ConnectionArgs {
     #[arg(short, long, default_value = "11111")]
