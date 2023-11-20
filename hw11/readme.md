@@ -4,17 +4,33 @@ Chatovací aplikace. Jeden server a více klientů. Klienti si přes server pos�
 
 # Jak spustit
 
+Nejdříve spustit server. Poté, co nastartuje, je možné pouštět klienty.
+
 **Server:**
 ```
-cd hw10\server
-cd cargo run -- -s 127.0.0.1 -p 8080
+cd hw11\server
+cargo run -- -s 127.0.0.1 -p 8080
 ```
 
 **Client:**
 ```
-cd hw10\client
-cd cargo run -- -s 127.0.0.1 -p 8080
+cd hw11\client
+cargo run -- -s 127.0.0.1 -p 8080
 ```
+
+# Commandy (strana klienta)
+- `.file <path>`: 
+    - klient pošle soubor na server
+    - server rozešle ostatním klientům, ti si ho uloží do adresáře `files`
+- `.image <path>`: 
+    - pošle obrázek (předpokládá se, že jde o .png). 
+    - server rozešle ostatním klientům, ti si ho uloží do adresáře `images` s příponou `.png`
+- `.quit`:
+    - ukončí klienta
+- jakýkoliv jiný text:
+    - pošle se jako textová zpráva na ostatní klienty
+    
+![image](server_client.drawio.png)
 
 # Design 
 
@@ -78,6 +94,8 @@ Co mi nesedí:
 1. `Result<Option<_>, Box<dyn Error>>` - je tohle normální? Je to podivně škaredý, ale funkční.
 
 1. Jak správně skombinovat více errorů dohromady? Mám funkci (viz sample), kde se může stát `std::io::Error` (setování timeoutu, timeout při čtení ze streamu), ale taky `bincode::Error` při deserializaci. Nevím, jak se toto řeší správně. 
+
+    => *vyřešeno pomocí `thiserror` crate. Viz [How to Use the “thiserror” Crate in Rust](https://betterprogramming.pub/a-simple-guide-to-using-thiserror-crate-in-rust-eee6e442409b)
 
 ## Uchovávání connection
 
