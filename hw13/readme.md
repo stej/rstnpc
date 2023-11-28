@@ -18,6 +18,12 @@ cd hw11\client
 cargo run -- -s 127.0.0.1 -p 8080
 ```
 
+Note:
+> Pro různé simulace chybových stavů je možné spustit u obou (server/client) `run8080_with_chaos_monkey.bat`. V tomto módu náhodně padá (de)serializace zpráv. 
+
+Jak vypadá standardní interakce:
+![image](hw13.gif)
+
 # Commandy (strana klienta)
 - `.file <path>`: 
     - klient pošle soubor na server

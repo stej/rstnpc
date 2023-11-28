@@ -1,9 +1,9 @@
 use clap::Parser;
-use shared::Message;
+use shared::{Message, chaos};
 use std::collections::HashMap;
 use std::time::Duration;
 use std::{net::SocketAddr, net::TcpListener, net::TcpStream};
-use log::{info, debug, error};
+use log::{info, debug, warn, error};
 use shared::ReceiveMessageError::*;
 use anyhow::{Result, Context};
 
@@ -41,11 +41,12 @@ impl ConnectedClients {
                 }
                 Ok(None) => {}
                 Err(RemoteDisconnected(e)) => {
-                    debug!("Client {} disconnected. Error: {}", addr, e);
+                    info!("Client {} disconnected. Error: {}", addr, e);
                     received.push((Message::ClientQuit("".into()), addr))
                 }
                 Err(GeneralStreamError(e)) => { 
                     error!("Client {} stream problems. Error: {}", addr, e);
+                    received.push((Message::ClientQuit("".into()), addr))
                 },
                 Err(DeserializationError(e)) => { 
                     error!("Client {} sent malformed message. Error: {}", addr, e);
@@ -57,7 +58,7 @@ impl ConnectedClients {
 
     fn remove(&mut self, clients_to_remove: &Vec<SocketAddr>) {
         clients_to_remove.iter().for_each(|addr| {
-            debug!("Removing client {}", addr);
+            info!("Removing client {}", addr);
             self.clients.remove(&addr).unwrap();
         });
     }
@@ -67,7 +68,7 @@ fn accept_connection(stream: Result<TcpStream, std::io::Error>) -> Option<TcpStr
     match stream {
         Ok(s) => {
             let addr = s.peer_addr().unwrap();
-            debug!("New connection from {}", addr);
+            info!("New connection from {}", addr);
             s.set_nonblocking(false)
                 .expect("Unable to set non-blocking");
             s.set_read_timeout(Some(shared::STREAM_READ_TIMEOUT))
@@ -90,7 +91,7 @@ fn remove_dead_clients(
     if clients_to_remove.is_empty() {
         return;
     }
-    debug!("Removing clients: {:?}", clients_to_remove);
+    info!("Removing clients: {:?}", clients_to_remove);
     clients.remove(&clients_to_remove);
 }
 
@@ -118,6 +119,9 @@ fn broadcast_messages(
 
 fn main() -> Result<()> {
     shared::logging::init();
+    if chaos::supported() {
+        warn!("Chaos monkey is enabled");
+    }
 
     let args = ListenerArgs::parse();
     info!("Listening on {}:{}", args.host, args.port);

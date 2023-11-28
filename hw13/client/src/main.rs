@@ -1,6 +1,4 @@
-use core::panic;
-use shared::Message; //https://github.com/Miosso/rust-workspace
-use std::error::Error;
+use shared::{Message, chaos}; //https://github.com/Miosso/rust-workspace
 use std::fs;
 use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
@@ -9,7 +7,9 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 use std::time::SystemTime;
 use clap::Parser;
-use log::{info, debug, error};
+use log::{info, debug, warn, error};
+//use anyhow::{Result as Result, Context};
+use anyhow::{Result, Context};
 
 // looks like common code for client and server, but this is not typical dry sample
 #[derive(Parser)]
@@ -20,31 +20,29 @@ struct ConnectionArgs {
     host: String,
 }
 
-fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<dyn Error>> {
-    fn file_to_message(file_path: &str) -> Result<Message, Box<dyn Error>> {
+fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<()> {
+    fn file_to_message(file_path: &str) -> Result<Message> {
         let path = Path::new(file_path);
-        if path.exists() {
-            let content = fs::read(path).unwrap();
-            Ok(Message::File {
-                name: path.file_name().unwrap().to_str().unwrap().into(),
-                content,
-            })
-        } else {
-            Err(format!("File {} does not exist", file_path).into())
-        }
+        let content = fs::read(path)?;
+        Ok(Message::File {
+            name: path.file_name().context("Unable to get file name")?.to_str().context("Unable to get file name")?.into(),
+            content,
+        })
     }
 
-    fn image_to_message(file_path: &str) -> Result<Message, Box<dyn Error>> {
-        let file = file_to_message(file_path)?;
-        let Message::File { name: _, content } = file else {
-            panic!("Expected file, but got {:?}", file);
-        };
+    fn image_to_message(file_path: &str) -> Result<Message> {
+        let Message::File { name: _, content } = 
+            file_to_message(file_path).context("Image processing failed")?
+            else {
+                panic!("Unexpected type");
+            };
+        
         let path = Path::new(file_path);
         match path
             .extension()
-            .ok_or("Unable to get extension")?
+            .context("Unable to get extension")?
             .to_str()
-            .ok_or("Unable to get extension")?
+            .context("Unable to get extension")?
         {
             ".png" => Ok(Message::Image(content)),
             _ => Ok(Message::Image(content)),
@@ -53,19 +51,15 @@ fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<(), Box<
 
     let command = command.trim();
     let message = if command.starts_with(".file ") {
-        file_to_message(&command[".file ".len()..])
+        file_to_message(&command[".file ".len()..])?
     } else if command.starts_with(".image ") {
-        image_to_message(&command[".image ".len()..])
+        image_to_message(&command[".image ".len()..])?
     } else {
-        Ok(Message::Text(command.into()))
+        Message::Text(command.into())
     };
-    match message {
-        Ok(message) => {
-            debug!("-> {:?}", message);
-            tx.send(message).map_err(|e| e.into())
-        },
-        Err(error) /*@ e*/ => Err(error)                            // todo zjednodusit?
-    }
+
+    debug!("-> {:?}", message);
+    Ok(tx.send(message)?)
 }
 
 fn handle_message(message: &Message) {
@@ -73,7 +67,7 @@ fn handle_message(message: &Message) {
         name: &str,
         content: &[u8],
         directory: &str,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<()> {
         let dir = Path::new(directory);
         if !dir.exists() {
             fs::create_dir(dir)?;
@@ -82,10 +76,10 @@ fn handle_message(message: &Message) {
         fs::write(file_path, content)?;
         Ok(())
     }
-    fn save_file(name: &str, content: &[u8]) -> Result<(), Box<dyn Error>> {
+    fn save_file(name: &str, content: &[u8]) -> Result<()> {
         save_general_file(name, content, "files")
     }
-    fn save_img(content: &[u8]) -> Result<(), Box<dyn Error>> {
+    fn save_img(content: &[u8]) -> Result<()> {
         let name = format!(
             "{}.png",
             SystemTime::now()
@@ -115,27 +109,32 @@ fn handle_message(message: &Message) {
     }
 }
 
-fn try_receive_message(stream: &mut TcpStream) {
-    match Message::receive(stream) {
+fn try_receive_message_from_server(stream: &mut TcpStream) -> bool {
+    use shared::ReceiveMessageError::*;
+
+    let msg = Message::receive(stream);
+    match &msg {
         Ok(Some(m)) => handle_message(&m),
-        Ok(None) => {}
-        Err(e) => {
-            // this would be great to have a reason of the error - e.g. server disconnected
-            // match e.kind() {
-            //     std::io::ErrorKind::ConnectionAborted |
-            //     std::io::ErrorKind::ConnectionReset |
-            //     std::io::ErrorKind::ConnectionRefused => {
-            //         panic!("Connection closed by server");
-            //     },
-            //     _ => eprintln!("Error reading message: {}", e)
-            // }
-            error!("Error reading message: {}", e)
-        }
+        Ok(None) => {},
+        Err(GeneralStreamError(e)) => { 
+            error!("Server stream problems. Error: {}", e);
+        },
+        Err(DeserializationError(e)) => { 
+            error!("Server sent malformed message. Error: {}", e);
+        },
+        Err(RemoteDisconnected(e)) => { 
+            error!("Server disconnected. Error: {}", e);
+        },
     }
+    !msg.is_err()
 }
 
-fn main() {
+#[allow(unreachable_code)]
+fn main() -> Result<()> {
     shared::logging::init();
+    if chaos::supported() {
+        warn!("Chaos monkey is enabled");
+    }
 
     let args = ConnectionArgs::parse();
     info!("Connecting to {}:{}", args.host, args.port);
@@ -143,6 +142,7 @@ fn main() {
     let addr = SocketAddr::new(args.host.parse().unwrap(), args.port);
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(30)).unwrap();
     let remote = stream.local_addr().unwrap().to_string();
+    info!("Connected as {}", remote);
 
     let (tx, rx) = mpsc::channel::<shared::Message>();
     let stream_commander = std::thread::spawn(move || {
@@ -158,7 +158,11 @@ fn main() {
                 }
                 Err(_) => {
                     // nothing to send, try to receive message
-                    try_receive_message(&mut stream)
+                    // if there are errors, breaek the loop
+                    if !try_receive_message_from_server(&mut stream) {
+                        error!("Unable to receive message from server. Exitting...");
+                        std::process::exit(1);
+                    }
                 }
             }
         }
@@ -166,17 +170,19 @@ fn main() {
     });
 
     let stdin = std::io::stdin();
+    let mut line = String::new();
     loop {
-        let mut line = String::new();
-        let command_result = match stdin.read_line(&mut line) {
-            Ok(_) if line.trim() == ".quit" => break,
-            Ok(_) => process_stdin_command(&line, &tx),
-            Err(error) => Err(error.into()),
-        };
-        if let Err(e) = command_result {
+        line.clear();
+        stdin.read_line(&mut line)?;
+        let line = line.trim();
+        if line == ".quit" {
+            break;
+        }
+        if let Err(e) = process_stdin_command(&line, &tx) {
             error!("{}", e);
         }
     }
-    tx.send(Message::ClientQuit(remote)).unwrap();
-    stream_commander.join().unwrap();
+    tx.send(Message::ClientQuit(remote))?;
+    stream_commander.join().expect("Unable to join thread");    //https://github.com/dtolnay/anyhow/issues/39
+    Ok(())
 }

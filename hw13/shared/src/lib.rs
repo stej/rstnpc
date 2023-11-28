@@ -1,4 +1,5 @@
 use bincode::Error as BincodeError;
+use log::warn;
 use serde::{Deserialize, Serialize};
 
 use std::error::Error;
@@ -30,9 +31,18 @@ pub enum ReceiveMessageError {
 
 impl Message {
     pub fn serialize(&self) -> Result<Vec<u8>, BincodeError> {
-        bincode::serialize(&self)
+        let mut res = bincode::serialize(&self)?;
+        if chaos::is_time_for_random_error() {
+            res.remove(0);
+            warn!("Chaos monkey is removing first byte from serialized message");
+        }
+        Ok(res)
     }
-    pub fn deserialize(from: &[u8]) -> Result<Self, BincodeError> {
+    pub fn deserialize(mut from: &[u8]) -> Result<Self, BincodeError> {
+        if chaos::is_time_for_random_error() {
+            warn!("Chaos monkey is removing first byte from message before deserialization");
+            from = &from[1..];
+        }
         bincode::deserialize(&from)
     }
 
@@ -91,5 +101,15 @@ pub mod logging {
     
     pub fn init() {
         init_from_env(Env::default().default_filter_or("info"));
+    }
+}
+
+pub mod chaos {
+
+    pub fn supported() -> bool {
+        std::env::var("CHAOS_MONKEY").is_ok()
+    }
+    pub fn is_time_for_random_error() -> bool {
+        supported() && rand::random::<u8>() < 30
     }
 }
