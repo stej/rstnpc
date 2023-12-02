@@ -7,7 +7,7 @@ use log::{info, debug, warn, error};
 use shared::ReceiveMessageError::*;
 use anyhow::{Result, Context};
 use tokio::net::TcpListener;
-use tokio::sync::mpsc::{channel as mpscchannel, Sender};
+use tokio::sync::mpsc::{channel as mpscchannel, Sender, Receiver};
 use tokio::select;
 
 // looks like common code for client and server, but this is not typical dry sample
@@ -26,6 +26,7 @@ struct ConnectedClients {
 
 impl ConnectedClients {
     fn add(&mut self, client: OwnedWriteHalf) {
+        debug!("New socket: {:?}", client);
         self.clients.insert(client.peer_addr().unwrap(), client);
     }
 
@@ -77,12 +78,35 @@ async fn main() -> Result<()> {
                             .await
                             .context("Unable to create listener. Is there any other instance running?")?;
 
-    let (tx_msg, mut rx_msg) = mpscchannel::<(SocketAddr, Message)>(1024);
-    let (tx_sock, mut rx_sock) = mpscchannel::<tokio::net::tcp::OwnedWriteHalf>(1024);
+    let (tx_msg, rx_msg) = mpscchannel::<(SocketAddr, Message)>(1024);
+    let (tx_sock, rx_sock) = mpscchannel::<tokio::net::tcp::OwnedWriteHalf>(1024);
 
-    // reader from channel with messages
+    // one global task that receives messages from (a) clients, (b) with new connections
+    spawn_task_holding_connected_clients(rx_sock, rx_msg);
+
+    loop {
+        match listener.accept().await {
+            Ok((stream, addr)) => {
+                info!("New connection from {}", addr);
+
+                let (stream_reader, stream_writer) = stream.into_split();
+
+                // register new client; it's stored with other clients so that it's possible to broadcast the incomming message
+                tx_sock.send(stream_writer).await.unwrap();
+                
+                let tx_msg = tx_msg.clone();
+                spawn_new_task_handling_one_client(stream_reader, tx_msg);
+            }
+            Err(e) => { 
+                error!("Encountered IO error: {}. Skipping the new connection attempt.", e);
+                continue;
+            }
+        };
+    }
+}
+
+fn spawn_task_holding_connected_clients(mut rx_sock: Receiver<OwnedWriteHalf>, mut rx_msg: Receiver<(SocketAddr, Message)>) {
     tokio::spawn(async move {
-
         let mut clients = ConnectedClients::new();
 
         loop {
@@ -91,45 +115,19 @@ async fn main() -> Result<()> {
                     debug!("Message from channel {:?}: {:?}", socket_addr, message);
 
                     match message {
-                        Message::ClientQuit(_) => {
-                            info!("Client {} disconnected.", socket_addr);
-                            clients.remove(&socket_addr);
-                        }
-                        _ => {
-                            clients.broadcast_message((message, socket_addr)).await;
-                        }
+                        Message::ClientQuit(_) => clients.remove(&socket_addr),
+                        _ => clients.broadcast_message((message, socket_addr)).await,
                     }
                 }
                 Some(sock) = rx_sock.recv() => {
-                    debug!("New socket: {:?}", sock);
                     clients.add(sock);
                 }
             }
         }
     });
-
-    loop {
-        let (stream, _addr) = match listener.accept().await {
-            Ok((stream, addr)) => {
-                info!("New connection from {}", addr);
-
-                let (stream_reader, stream_writer) = stream.into_split();
-                tx_sock.send(stream_writer).await.unwrap();
-                (stream_reader, addr)
-            }
-            Err(e) => { 
-                error!("Encountered IO error: {}. Skipping the new connection attempt.", e);
-                continue;
-            }
-        };
-
-
-        let tx_msg = tx_msg.clone();
-        spawn_new_task_handling_client(stream, tx_msg);
-    }
 }
 
-fn spawn_new_task_handling_client(mut stream: OwnedReadHalf, tx_msg: Sender<(SocketAddr, shared::Message)>)  {
+fn spawn_new_task_handling_one_client(mut stream: OwnedReadHalf, tx_msg: Sender<(SocketAddr, shared::Message)>)  {
     tokio::spawn(async move {
         async fn send(tx: &Sender<(SocketAddr, shared::Message)>, message: (SocketAddr, Message)) {
             if let Err(e) = tx.send(message).await {
@@ -142,12 +140,12 @@ fn spawn_new_task_handling_client(mut stream: OwnedReadHalf, tx_msg: Sender<(Soc
                 Ok(message) => send(&tx_msg, (stream_addr, message)).await,
                 Err(GeneralStreamError(e)) => { 
                     error!("Client {} stream problems. Error: {}. Exitting...", stream_addr, e);
-                    send(&tx_msg, (stream_addr, Message::ClientQuit("".into()))).await;
+                    send(&tx_msg, (stream_addr, Message::ClientQuit(stream_addr.to_string()))).await;
                     break;
                 },
                 Err(RemoteDisconnected(e)) => { 
                     error!("Client {} disconnected. Error: {}. Exitting...", stream_addr, e);
-                    send(&tx_msg, (stream_addr, Message::ClientQuit("".into()))).await;
+                    send(&tx_msg, (stream_addr, Message::ClientQuit(stream_addr.to_string()))).await;
                     break;
                 },
                 Err(DeserializationError(e)) => { 
