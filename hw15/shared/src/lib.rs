@@ -1,6 +1,7 @@
 use bincode::Error as BincodeError;
-use log::warn;
+use log::{warn,debug};
 use serde::{Deserialize, Serialize};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use std::error::Error;
 use std::io::{Read, Write};
@@ -8,7 +9,7 @@ use std::net::TcpStream;
 use std::time::Duration;
 
 use tokio::net::TcpStream as TokioTcpStream;
-use tokio::io::{AsyncReadExt};  //AsyncWriteExt
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Serialize, Deserialize, Debug)]
 
@@ -53,6 +54,14 @@ impl Message {
         let data_len = data.len() as u32;
         tcp_stream.write(&data_len.to_be_bytes())?;
         tcp_stream.write_all(&data)?;
+        Ok(())
+    }
+
+    pub async fn send_to_async(&self, tcp_stream: &mut OwnedWriteHalf) -> Result<(), Box<dyn Error>> {
+        let data = self.serialize()?;
+        let data_len = data.len() as u32;
+        tcp_stream.write(&data_len.to_be_bytes()).await?;
+        tcp_stream.write_all(&data).await?;
         Ok(())
     }
 
@@ -105,9 +114,40 @@ impl Message {
             {
                 Ok(_) => u32::from_be_bytes(len_bytes) as usize,
                 Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Err(RemoteDisconnected(e)),
-                Err(e) => return Err(GeneralStreamError(e))
+                Err(e) => { debug!("error reading len: {:?}", e); return Err(GeneralStreamError(e)) }
             }
         };
+
+        let message = {
+            let mut buffer = vec![0u8; data_len];
+            stream.read_exact(&mut buffer).await?;
+            Message::deserialize(&buffer)?
+        };
+        Ok(message)
+    }
+
+    pub async fn receive2_async(stream: &mut OwnedReadHalf) -> Result<Message, ReceiveMessageError> {
+
+        use ReceiveMessageError::*;
+        
+        debug!("reading data len");
+        let data_len = {
+            let mut len_bytes = [0u8; 4];
+            match stream.read_exact(&mut len_bytes).await
+            {
+                Ok(_) => u32::from_be_bytes(len_bytes) as usize,
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => 
+                { 
+                    debug!("error reading data: {:?}", e); 
+                    return Err(RemoteDisconnected(e))
+                },
+                Err(e) => { 
+                    debug!("error reading data: {:?}", e); 
+                    return Err(GeneralStreamError(e))
+                }
+            }
+        };
+        debug!("data len: {}", data_len);
 
         let message = {
             let mut buffer = vec![0u8; data_len];

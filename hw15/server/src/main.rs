@@ -1,12 +1,14 @@
 use clap::Parser;
 use shared::{Message, chaos};
+use tokio::net::tcp::{OwnedWriteHalf, OwnedReadHalf};
 use std::collections::HashMap;
-use std::time::Duration;
-//use std::{net::SocketAddr, net::TcpListener, net::TcpStream};
+use std::net::SocketAddr;
 use log::{info, debug, warn, error};
 use shared::ReceiveMessageError::*;
 use anyhow::{Result, Context};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
+use tokio::sync::mpsc::{channel as mpscchannel, Sender};
+use tokio::select;
 
 // looks like common code for client and server, but this is not typical dry sample
 #[derive(Parser)]
@@ -17,91 +19,49 @@ struct ListenerArgs {
     host: String,
 }
 
-//#[derive(Debug)]
-// struct ConnectedClients {
-//     clients: HashMap<SocketAddr, TcpStream>,
-// }
+#[derive(Debug)]
+struct ConnectedClients {
+    clients: HashMap<SocketAddr, OwnedWriteHalf>,
+}
 
-// impl ConnectedClients {
-//     fn add(&mut self, client: TcpStream) {
-//         self.clients.insert(client.peer_addr().unwrap(), client);
-//     }
+impl ConnectedClients {
+    fn add(&mut self, client: OwnedWriteHalf) {
+        self.clients.insert(client.peer_addr().unwrap(), client);
+    }
 
-//     fn new() -> Self {
-//         Self {
-//             clients: HashMap::new(),
-//         }
-//     }
+    fn new() -> Self {
+        Self { clients: HashMap::new() }
+    }
 
-    // fn receive_messages(&mut self) -> Vec<(Message, SocketAddr)> {
-    //     let mut received = Vec::new();
-    //     for (&addr, client) in &mut self.clients {
-    //         match Message::receive(client) {
-    //             Ok(Some(m)) => {
-    //                 received.push((m, addr));
-    //             }
-    //             Ok(None) => {}
-    //             Err(RemoteDisconnected(e)) => {
-    //                 info!("Client {} disconnected. Error: {}", addr, e);
-    //                 received.push((Message::ClientQuit("".into()), addr))
-    //             }
-    //             Err(GeneralStreamError(e)) => { 
-    //                 error!("Client {} stream problems. Error: {}", addr, e);
-    //                 received.push((Message::ClientQuit("".into()), addr))
-    //             },
-    //             Err(DeserializationError(e)) => { 
-    //                 error!("Client {} sent malformed message. Error: {}", addr, e);
-    //             },
-    //         }
-    //     }
-    //     received
-    // }
+    fn remove(&mut self, client_to_remove: &SocketAddr) {
+        debug!("all clients: {:?}", self.clients.keys());
+        debug!("client to remove: {:?}", client_to_remove);
+        match self.clients.remove(client_to_remove) {
+            Some(_) => (),
+            None => debug!("Client {} already removed.", client_to_remove),
+        }
 
-    // fn remove(&mut self, clients_to_remove: &Vec<SocketAddr>) {
-    //     clients_to_remove.iter().for_each(|addr| {
-    //         info!("Removing client {}", addr);
-    //         self.clients.remove(&addr).unwrap();
-    //     });
-    // }
-//}
+        if self.clients.is_empty() {
+            info!("No clients connected.");
+        }
+    }
 
-// fn remove_dead_clients(
-//     clients: &mut ConnectedClients,
-//     incomming_messages: &Vec<(Message, SocketAddr)>,
-// ) {
-//     let clients_to_remove = incomming_messages
-//         .iter()
-//         .filter(|(m, _)| matches!(m, Message::ClientQuit(_)))
-//         .map(|(_, addr)| addr.clone())
-//         .collect::<Vec<SocketAddr>>();
-//     if clients_to_remove.is_empty() {
-//         return;
-//     }
-//     info!("Removing clients: {:?}", clients_to_remove);
-//     clients.remove(&clients_to_remove);
-// }
+    async fn broadcast_message(&mut self, incomming_message: (Message, SocketAddr)) {
+        debug!("all clients : {:?}", self.clients.keys());
+        info!("message: {:?}", incomming_message);
 
-// fn broadcast_messages(
-//     clients: &mut ConnectedClients,
-//     incomming_messages: Vec<(Message, SocketAddr)>,
-// ) {
-//     if incomming_messages.len() == 0 {
-//         return;
-//     }
-//     debug!("clients : {:?}", clients.clients.keys());
-//     debug!("messages: {:?}", incomming_messages);
+        let (msg, message_origin_address) = incomming_message;
 
-//     for (msg, message_origin_address) in incomming_messages {
-//         clients
-//             .clients
-//             .iter_mut()
-//             .filter(|(a, _)| **a != message_origin_address)
-//             .for_each(|(_, c)| match msg.send_to(c) {
-//                 Ok(_) => {}
-//                 Err(e) => error!("Error sending message: {}", e),
-//             });
-//     }
-// }
+        for (socket_addr,write_stream) in self.clients.iter_mut() {
+            if *socket_addr != message_origin_address {
+                match msg.send_to_async(write_stream).await {
+                        Ok(_) => { info!("  ... sent to {:?}", socket_addr); },
+                        Err(e) => error!("Error sending message: {}", e),
+                }
+            }
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -113,30 +73,49 @@ async fn main() -> Result<()> {
     let args = ListenerArgs::parse();
     info!("Listening on {}:{}", args.host, args.port);
 
-    ///let mut clients = ConnectedClients::new();
     let listener = TcpListener::bind(format!("{}:{}", args.host, args.port))
                             .await
                             .context("Unable to create listener. Is there any other instance running?")?;
 
-    let (msg_out, msg_in) = flume::unbounded();
-    let (sock_out, sock_in) = flume::unbounded();
+    let (tx_msg, mut rx_msg) = mpscchannel::<(SocketAddr, Message)>(1024);
+    let (tx_sock, mut rx_sock) = mpscchannel::<tokio::net::tcp::OwnedWriteHalf>(1024);
+
     // reader from channel with messages
     tokio::spawn(async move {
-        use tokio::select;
+
+        let mut clients = ConnectedClients::new();
+
         loop {
-            let Ok(message) : Result<Message, _> = msg_in.recv_async().await else {
-                return;
-            };
-            println!("{:?}", message);
+            select! {
+                Some((socket_addr, message)) = rx_msg.recv() => {
+                    debug!("Message from channel {:?}: {:?}", socket_addr, message);
+
+                    match message {
+                        Message::ClientQuit(_) => {
+                            info!("Client {} disconnected.", socket_addr);
+                            clients.remove(&socket_addr);
+                        }
+                        _ => {
+                            clients.broadcast_message((message, socket_addr)).await;
+                        }
+                    }
+                }
+                Some(sock) = rx_sock.recv() => {
+                    debug!("New socket: {:?}", sock);
+                    clients.add(sock);
+                }
+            }
         }
     });
 
     loop {
-        let (mut stream, addr) = match listener.accept().await {
+        let (stream, _addr) = match listener.accept().await {
             Ok((stream, addr)) => {
-                let addr = stream.peer_addr().unwrap();
                 info!("New connection from {}", addr);
-                (stream, addr)
+
+                let (stream_reader, stream_writer) = stream.into_split();
+                tx_sock.send(stream_writer).await.unwrap();
+                (stream_reader, addr)
             }
             Err(e) => { 
                 error!("Encountered IO error: {}. Skipping the new connection attempt.", e);
@@ -145,27 +124,36 @@ async fn main() -> Result<()> {
         };
 
 
-        let tx = msg_out.clone();
-        //clients.add(stream);
-        tokio::spawn(async move {
-            async fn send(tx: &flume::Sender<shared::Message>, message: Message) {
-                if let Err(e) = tx.send_async(message).await {
-                    error!("Error sending message: {}", e);
-                }
-            }
-            loop {
-                match Message::receive_async(&mut stream).await {
-                    Ok(message) => send(&tx, message).await,
-                    Err(e) => println!("Error: {}", e)
-                }
-            }
-        });
-
-        // let incomming_messages = clients.receive_messages();
-        // remove_dead_clients(&mut clients, &incomming_messages);
-        // broadcast_messages(&mut clients, incomming_messages);
-        // std::thread::sleep(Duration::from_millis(10));
+        let tx_msg = tx_msg.clone();
+        spawn_new_task_handling_client(stream, tx_msg);
     }
+}
 
-    Ok(())
+fn spawn_new_task_handling_client(mut stream: OwnedReadHalf, tx_msg: Sender<(SocketAddr, shared::Message)>)  {
+    tokio::spawn(async move {
+        async fn send(tx: &Sender<(SocketAddr, shared::Message)>, message: (SocketAddr, Message)) {
+            if let Err(e) = tx.send(message).await {
+                error!("Error sending message: {}", e);
+            }
+        }
+        let stream_addr = stream.peer_addr().unwrap();
+        loop {
+            match Message::receive2_async(&mut stream).await {
+                Ok(message) => send(&tx_msg, (stream_addr, message)).await,
+                Err(GeneralStreamError(e)) => { 
+                    error!("Client {} stream problems. Error: {}. Exitting...", stream_addr, e);
+                    send(&tx_msg, (stream_addr, Message::ClientQuit("".into()))).await;
+                    break;
+                },
+                Err(RemoteDisconnected(e)) => { 
+                    error!("Client {} disconnected. Error: {}. Exitting...", stream_addr, e);
+                    send(&tx_msg, (stream_addr, Message::ClientQuit("".into()))).await;
+                    break;
+                },
+                Err(DeserializationError(e)) => { 
+                    error!("Client {} sent malformed message. Error: {}", stream_addr, e);
+                },
+            }
+        }
+    });
 }
