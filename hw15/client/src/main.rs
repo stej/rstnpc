@@ -1,15 +1,18 @@
-use shared::{Message, chaos}; //https://github.com/Miosso/rust-workspace
+use shared::{Message, chaos, ReceiveMessageError};
+use tokio::net::tcp::OwnedWriteHalf; //https://github.com/Miosso/rust-workspace
 use std::fs;
-use std::net::{SocketAddr, TcpStream};
+use tokio::net::TcpStream;
+use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::mpsc;
-use std::sync::mpsc::Sender;
+//use std::sync::mpsc;
+//use std::sync::mpsc::Sender;
 use std::time::Duration;
 use std::time::SystemTime;
 use clap::Parser;
 use log::{info, debug, warn, error};
-//use anyhow::{Result as Result, Context};
 use anyhow::{Result, Context};
+
+use tokio::sync::mpsc::{Sender, Receiver, channel};
 
 // looks like common code for client and server, but this is not typical dry sample
 #[derive(Parser)]
@@ -20,7 +23,7 @@ struct ConnectionArgs {
     host: String,
 }
 
-fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<()> {
+async fn process_stdin_command(command: &str, tcpstream: &mut OwnedWriteHalf) -> Result<(), Box<dyn std::error::Error>> {
     fn file_to_message(file_path: &str) -> Result<Message> {
         let path = Path::new(file_path);
         let content = fs::read(path)?;
@@ -59,7 +62,7 @@ fn process_stdin_command(command: &str, tx: &Sender<Message>) -> Result<()> {
     };
 
     debug!("-> {:?}", message);
-    Ok(tx.send(message)?)
+    message.send_to_async(tcpstream).await
 }
 
 fn handle_message(message: &Message) {
@@ -109,13 +112,11 @@ fn handle_message(message: &Message) {
     }
 }
 
-fn try_receive_message_from_server(stream: &mut TcpStream) -> bool {
+fn process_incomming_message_from_server(message: &Result<Message, ReceiveMessageError>) -> bool {
     use shared::ReceiveMessageError::*;
 
-    let msg = Message::receive(stream);
-    match &msg {
-        Ok(Some(m)) => handle_message(&m),
-        Ok(None) => {},
+    match message {
+        Ok(m) => handle_message(&m),
         Err(GeneralStreamError(e)) => { 
             error!("Server stream problems. Error: {}", e);
         },
@@ -126,11 +127,12 @@ fn try_receive_message_from_server(stream: &mut TcpStream) -> bool {
             error!("Server disconnected. Error: {}", e);
         },
     }
-    !msg.is_err()
+    !message.is_err()
 }
 
 #[allow(unreachable_code)]
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     shared::logging::init();
     if chaos::enabled() {
         warn!("Chaos monkey is enabled");
@@ -140,49 +142,30 @@ fn main() -> Result<()> {
     info!("Connecting to {}:{}", args.host, args.port);
 
     let addr = SocketAddr::new(args.host.parse().unwrap(), args.port);
-    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(30)).unwrap();
+    let mut stream = TcpStream::connect(&addr).await.unwrap();
     let remote = stream.local_addr().unwrap().to_string();
     info!("Connected as {}", remote);
 
-    let (tx, rx) = mpsc::channel::<shared::Message>();
-    let stream_commander = std::thread::spawn(move || {
-        loop {
-            match rx.recv_timeout(std::time::Duration::from_millis(100)) {
-                Ok(message) => {
-                    message
-                        .send_to(&mut stream)
-                        .expect("Unable to send message");
-                    if matches!(message, Message::ClientQuit(_)) {
-                        break;
-                    }
-                }
-                Err(_) => {
-                    // nothing to send, try to receive message
-                    // if there are errors, breaek the loop
-                    if !try_receive_message_from_server(&mut stream) {
-                        error!("Unable to receive message from server. Exitting...");
-                        std::process::exit(1);
-                    }
-                }
-            }
-        }
-        info!("Exiting...");
-    });
+    let (mut stream_reader, mut stream_writer) = stream.into_split();
 
-    let stdin = std::io::stdin();
-    let mut line = String::new();
+    let mut rx_stdin = async_stdin::recv_from_stdin(1);
     loop {
-        line.clear();
-        stdin.read_line(&mut line)?;
-        let line = line.trim();
-        if line == ".quit" {
-            break;
-        }
-        if let Err(e) = process_stdin_command(&line, &tx) {
-            error!("{}", e);
-        }
+        tokio::select!(
+            Some(command) = rx_stdin.recv() => {
+                let command = command.trim();
+                if command == ".quit" {
+                    break;
+                }
+                if let Err(e) = process_stdin_command(&command, &mut stream_writer).await {
+                    error!("{}", e);
+                }
+            },
+            message = Message::receive2_async(&mut stream_reader) => {
+                if !process_incomming_message_from_server(&message) {
+                    break;
+                }
+            }           
+        )
     }
-    tx.send(Message::ClientQuit(remote))?;
-    stream_commander.join().expect("Unable to join thread");    //https://github.com/dtolnay/anyhow/issues/39
     Ok(())
 }
