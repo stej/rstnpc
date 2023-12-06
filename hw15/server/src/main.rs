@@ -55,7 +55,7 @@ impl ConnectedClients {
 
         for (socket_addr,write_stream) in self.clients.iter_mut() {
             if *socket_addr != message_origin_address {
-                match msg.send_to_async(write_stream).await {
+                match msg.send_async(write_stream).await {
                         Ok(_) => { info!("  ... sent to {:?}", socket_addr); },
                         Err(e) => error!("Error sending message: {}", e),
                 }
@@ -105,6 +105,12 @@ async fn main() -> Result<()> {
     }
 }
 
+/// task that holds all connected clients and broadcasts messages to them
+/// 
+/// the clients (TCP streams) are stored in local variable
+/// incomming data come from two channels:
+/// - `rx_sock` - writeable streams to register for broadcasing
+/// - `rx_msg` - message to broadcast (that arrived from any client)
 fn spawn_task_holding_connected_clients(mut rx_sock: Receiver<OwnedWriteHalf>, mut rx_msg: Receiver<(SocketAddr, Message)>) {
     tokio::spawn(async move {
         let mut clients = ConnectedClients::new();
@@ -127,6 +133,10 @@ fn spawn_task_holding_connected_clients(mut rx_sock: Receiver<OwnedWriteHalf>, m
     });
 }
 
+/// task that handles one client
+/// 
+/// the task is using read part of the TCP stream to receive messages from the client
+/// the message is decoded and sent to the channel `tx_msg` to be broadcasted to other clients
 fn spawn_new_task_handling_one_client(mut stream: OwnedReadHalf, tx_msg: Sender<(SocketAddr, shared::Message)>)  {
     tokio::spawn(async move {
         async fn send(tx: &Sender<(SocketAddr, shared::Message)>, message: (SocketAddr, Message)) {
@@ -136,7 +146,7 @@ fn spawn_new_task_handling_one_client(mut stream: OwnedReadHalf, tx_msg: Sender<
         }
         let stream_addr = stream.peer_addr().unwrap();
         loop {
-            match Message::receive2_async(&mut stream).await {
+            match Message::receive_async(&mut stream).await {
                 Ok(message) => send(&tx_msg, (stream_addr, message)).await,
                 Err(GeneralStreamError(e)) => { 
                     error!("Client {} stream problems. Error: {}. Exitting...", stream_addr, e);

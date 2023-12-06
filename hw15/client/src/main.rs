@@ -1,18 +1,15 @@
 use shared::{Message, chaos, ReceiveMessageError};
-use tokio::net::tcp::OwnedWriteHalf; //https://github.com/Miosso/rust-workspace
-use std::fs;
+use tokio::{net::tcp::OwnedWriteHalf, io::AsyncWriteExt}; //https://github.com/Miosso/rust-workspace
+use tokio::io::AsyncReadExt;
+use tokio::fs::File;
+//use std::fs;
 use tokio::net::TcpStream;
 use std::net::SocketAddr;
 use std::path::Path;
-//use std::sync::mpsc;
-//use std::sync::mpsc::Sender;
-use std::time::Duration;
 use std::time::SystemTime;
 use clap::Parser;
 use log::{info, debug, warn, error};
 use anyhow::{Result, Context};
-
-use tokio::sync::mpsc::{Sender, Receiver, channel};
 
 // looks like common code for client and server, but this is not typical dry sample
 #[derive(Parser)]
@@ -24,18 +21,22 @@ struct ConnectionArgs {
 }
 
 async fn process_stdin_command(command: &str, tcpstream: &mut OwnedWriteHalf) -> Result<(), Box<dyn std::error::Error>> {
-    fn file_to_message(file_path: &str) -> Result<Message> {
+    async fn file_to_message(file_path: &str) -> Result<Message> {
         let path = Path::new(file_path);
-        let content = fs::read(path)?;
+        let mut content = Vec::new();
+        File::open(path)
+            .await?
+            .read_to_end(&mut content)
+            .await?;
         Ok(Message::File {
             name: path.file_name().context("Unable to get file name")?.to_str().context("Unable to get file name")?.into(),
             content,
         })
     }
 
-    fn image_to_message(file_path: &str) -> Result<Message> {
+    async fn image_to_message(file_path: &str) -> Result<Message> {
         let Message::File { name: _, content } = 
-            file_to_message(file_path).context("Image processing failed")?
+            file_to_message(file_path).await.context("Image processing failed")?
             else {
                 panic!("Unexpected type");
             };
@@ -54,35 +55,36 @@ async fn process_stdin_command(command: &str, tcpstream: &mut OwnedWriteHalf) ->
 
     let command = command.trim();
     let message = if command.starts_with(".file ") {
-        file_to_message(&command[".file ".len()..])?
+        file_to_message(&command[".file ".len()..]).await?
     } else if command.starts_with(".image ") {
-        image_to_message(&command[".image ".len()..])?
+        image_to_message(&command[".image ".len()..]).await?
     } else {
         Message::Text(command.into())
     };
 
     debug!("-> {:?}", message);
-    message.send_to_async(tcpstream).await
+    message.send_async(tcpstream).await
 }
 
-fn handle_message(message: &Message) {
-    fn save_general_file(
-        name: &str,
-        content: &[u8],
-        directory: &str,
-    ) -> Result<()> {
+async fn handle_message(message: &Message) {
+    async fn save_general_file(name: &str, content: &[u8], directory: &str) -> Result<()> {
         let dir = Path::new(directory);
         if !dir.exists() {
-            fs::create_dir(dir)?;
+            tokio::fs::create_dir(dir).await?;
         }
         let file_path = dir.join(name);
-        fs::write(file_path, content)?;
+        File::create(file_path)
+            .await?
+            .write_all(content)
+            .await?;
         Ok(())
     }
-    fn save_file(name: &str, content: &[u8]) -> Result<()> {
-        save_general_file(name, content, "files")
+
+    async fn save_file(name: &str, content: &[u8]) -> Result<()> {
+        save_general_file(name, content, "files").await
     }
-    fn save_img(content: &[u8]) -> Result<()> {
+
+    async fn save_img(content: &[u8]) -> Result<()> {
         let name = format!(
             "{}.png",
             SystemTime::now()
@@ -90,16 +92,16 @@ fn handle_message(message: &Message) {
                 .as_millis()
                 .to_string()
         );
-        save_general_file(&name, content, "images")
+        save_general_file(&name, content, "images").await
     }
     let message_result = match message {
         Message::File { name, content } => {
             println!("Receiving {}", name);
-            save_file(name, content)
+            save_file(name, content).await
         }
         Message::Image(content) => {
             println!("Receiving image...");
-            save_img(content)
+            save_img(content).await
         }
         Message::Text(text) => {
             println!("{}", text);
@@ -112,11 +114,11 @@ fn handle_message(message: &Message) {
     }
 }
 
-fn process_incomming_message_from_server(message: &Result<Message, ReceiveMessageError>) -> bool {
+async fn process_incomming_message_from_server(message: &Result<Message, ReceiveMessageError>) -> bool {
     use shared::ReceiveMessageError::*;
 
     match message {
-        Ok(m) => handle_message(&m),
+        Ok(m) => handle_message(&m).await,
         Err(GeneralStreamError(e)) => { 
             error!("Server stream problems. Error: {}", e);
         },
@@ -141,9 +143,9 @@ async fn main() -> Result<()> {
     let args = ConnectionArgs::parse();
     info!("Connecting to {}:{}", args.host, args.port);
 
-    let addr = SocketAddr::new(args.host.parse().unwrap(), args.port);
-    let mut stream = TcpStream::connect(&addr).await.unwrap();
-    let remote = stream.local_addr().unwrap().to_string();
+    let addr = SocketAddr::new(args.host.parse()?, args.port);
+    let stream = TcpStream::connect(&addr).await?;
+    let remote = stream.local_addr()?.to_string();
     info!("Connected as {}", remote);
 
     let (mut stream_reader, mut stream_writer) = stream.into_split();
@@ -160,8 +162,8 @@ async fn main() -> Result<()> {
                     error!("{}", e);
                 }
             },
-            message = Message::receive2_async(&mut stream_reader) => {
-                if !process_incomming_message_from_server(&message) {
+            message = Message::receive_async(&mut stream_reader) => {
+                if !process_incomming_message_from_server(&message).await {
                     break;
                 }
             }           
