@@ -1,3 +1,5 @@
+mod db;
+
 use clap::Parser;
 use shared::{Message, chaos};
 use tokio::net::tcp::{OwnedWriteHalf, OwnedReadHalf};
@@ -70,6 +72,8 @@ async fn main() -> Result<()> {
     if chaos::enabled() {
         warn!("Chaos monkey is enabled");
     }
+
+    db::ensure_db_exists().await?;
 
     let args = ListenerArgs::parse();
     info!("Listening on {}:{}", args.host, args.port);
