@@ -88,13 +88,27 @@ async fn main() -> Result<()> {
     // one global task that receives messages from (a) clients, (b) with new connections
     spawn_task_holding_connected_clients(rx_sock, rx_msg);
 
+    let mut connected_users = Vec::new();
     loop {
         match listener.accept().await {
             Ok((stream, addr)) => {
                 info!("New connection from {}", addr);
 
-                let (stream_reader, stream_writer) = stream.into_split();
-
+                let (mut stream_reader, mut stream_writer) = stream.into_split();
+                let (register_user, user_name) = match user_can_connect(&mut stream_reader, &mut stream_writer, &connected_users).await {
+                        Err(e) => {
+                            error!("Error when checking if user can connect: {}", e);
+                            (false, None)
+                        }
+                        Ok((false, user)) => (false, user),
+                        Ok((true, user)) => (true, user),
+                    };
+                if !register_user {
+                    drop(stream_reader);
+                    drop(stream_writer);
+                    continue;
+                }
+                connected_users.push(user_name.unwrap());
                 // register new client; it's stored with other clients so that it's possible to broadcast the incomming message
                 tx_sock.send(stream_writer).await.unwrap();
                 
@@ -106,6 +120,27 @@ async fn main() -> Result<()> {
                 continue;
             }
         };
+    }
+}
+
+// checks whether the user that is trying to register on server, can be connected
+async fn user_can_connect(stream_reader: &mut OwnedReadHalf, stream_writer: &mut OwnedWriteHalf, already_connected_users: &Vec<String>) -> Result<(bool, Option<String>)>  {
+    let hello_message = Message::receive_async(stream_reader).await?;
+    match hello_message {
+        Message::ClientHello(user) => {
+            if already_connected_users.contains(&user) {
+                error!("User {} already connected", user);
+                return Ok((false, None))
+            }
+            match Message::ServerHello.send_async(stream_writer).await {
+                Ok(()) => Ok((true, Some(user))),
+                Err(_) => Ok((false, None)), // convert to anyhow??
+            }
+        },
+        _ => {
+            error!("Unexpected message from client: {:?}", hello_message);
+            return Ok((false, None))
+        }
     }
 }
 
@@ -149,6 +184,7 @@ fn spawn_new_task_handling_one_client(mut stream: OwnedReadHalf, tx_msg: Sender<
             }
         }
         let stream_addr = stream.peer_addr().unwrap();
+        // first message is always ClientHello and my reply should be ServerHello if there is the client is unique
         loop {
             match Message::receive_async(&mut stream).await {
                 Ok(message) => send(&tx_msg, (stream_addr, message)).await,

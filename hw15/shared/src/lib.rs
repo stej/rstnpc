@@ -13,6 +13,8 @@ pub enum Message {
     Text(String),
     Image(Vec<u8>),
     File { name: String, content: Vec<u8> },
+    ClientHello(String),
+    ServerHello,
     ClientQuit(String),
 }
 

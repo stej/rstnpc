@@ -1,4 +1,5 @@
 use shared::{Message, chaos, ReceiveMessageError};
+use tokio::net::tcp::OwnedReadHalf;
 use tokio::{net::tcp::OwnedWriteHalf, io::AsyncWriteExt}; //https://github.com/Miosso/rust-workspace
 use tokio::io::AsyncReadExt;
 use tokio::fs::File;
@@ -9,7 +10,7 @@ use std::path::Path;
 use std::time::SystemTime;
 use clap::Parser;
 use log::{info, debug, warn, error};
-use anyhow::{Result, Context};
+use anyhow::{Result, Context,anyhow};
 
 // looks like common code for client and server, but this is not typical dry sample
 #[derive(Parser)]
@@ -18,6 +19,8 @@ struct ConnectionArgs {
     port: u16,
     #[arg(short = 's', long, default_value = "localhost")]
     host: String,
+    #[arg(short = 'u', long, default_value = "")]
+    user: String,
 }
 
 async fn process_stdin_command(command: &str, tcpstream: &mut OwnedWriteHalf) -> Result<(), Box<dyn std::error::Error>> {
@@ -132,6 +135,28 @@ async fn process_incomming_message_from_server(message: &Result<Message, Receive
     !message.is_err()
 }
 
+async fn try_send_hello(stream_reader: &mut OwnedReadHalf, stream_writer: &mut OwnedWriteHalf, user: &str) -> Result<()> {
+
+    let msg = Message::ClientHello(user.into());
+
+    // note: now idea how to just call
+    //    msg.send_async(stream_writer).await?; 
+    // so that it's converted to Result<()>
+    // it complains: 
+    //    `dyn std::error::Error` cannot be shared between threads safely
+    //    the trait `Sync` is not implemented for `dyn std::error::Error` etc.
+    // somewhere used anyhow::from_boxed (https://github.com/dtolnay/anyhow/issues/83), but it's obviously not possible anymore (anyhow::error::from_boxed is private)
+    if let Err(e) = msg.send_async(stream_writer).await {
+         return Err(anyhow!("Problems when sending hello message to server: {}", e));
+    }
+    if let Message::ServerHello = Message::receive_async(stream_reader).await? {
+        info!("Connected as {}", user);
+        Ok(())
+    } else {
+        Err(anyhow!("Unexpected message from server"))
+    }
+}
+
 #[allow(unreachable_code)]
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -143,12 +168,18 @@ async fn main() -> Result<()> {
     let args = ConnectionArgs::parse();
     info!("Connecting to {}:{}", args.host, args.port);
 
-    let addr = SocketAddr::new(args.host.parse()?, args.port);
-    let stream = TcpStream::connect(&addr).await?;
-    let remote = stream.local_addr()?.to_string();
-    info!("Connected as {}", remote);
+    let remote_addr = SocketAddr::new(args.host.parse()?, args.port);
+    let stream = TcpStream::connect(&remote_addr).await?;
+    let local_addr = stream.local_addr()?.to_string();
 
+    let user = if args.user.is_empty() {  local_addr.clone()} 
+                    else {args.user };
     let (mut stream_reader, mut stream_writer) = stream.into_split();
+    info!("Connecting as {}, user {}", local_addr, user);
+    if let Err(e) = try_send_hello(&mut stream_reader, &mut stream_writer, &user).await {
+        info!("Server closed connection. {}", e);
+        return Ok(());
+    }
 
     let mut rx_stdin = async_stdin::recv_from_stdin(1);
     loop {
