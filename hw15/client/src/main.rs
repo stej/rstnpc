@@ -70,7 +70,7 @@ async fn process_stdin_command(user_name: &str, command: &str, tcpstream: &mut O
     message.send_async(tcpstream).await
 }
 
-async fn handle_message(message: &Message) {
+async fn handle_message(current_user: &str, message: &Message) {
     async fn save_general_file(name: &str, content: &[u8], directory: &str) -> Result<()> {
         let dir = Path::new(directory);
         if !dir.exists() {
@@ -100,27 +100,27 @@ async fn handle_message(message: &Message) {
     }
     let message_result = match message {
         Message::File { from, name, content } => {
-            println!("[{}]: Receiving {}", from, name);
+            println!("|{}|[{}]: Receiving {}", current_user, from, name);
             save_file(name, content).await
         }
         Message::Image{ from, content} => {
-            println!("[{}]: Receiving image...", from);
+            println!("|{}|[{}]: Receiving image...", current_user, from);
             save_img(content).await
         }
         Message::Text{ from, content} => {
-            println!("[{}]: {}", from, content);
+            println!("|{}|[{}]: {}", current_user, from, content);
             Ok(())
         }
         Message::ClientHello { from } => {
-            println!("[{}]: ...connected", from);
+            println!("|{}|[{}]: ...connected", current_user, from);
             Ok(())
         }
         Message::ClientQuit { from } => {
-            println!("[{}]: ...disconnected", from);
+            println!("|{}|[{}]: ...disconnected", current_user, from);
             Ok(())
         },
         _ => {
-            println!("Unexpected message: {:?}", message);
+            println!("|{}|Unexpected message: {:?}", current_user, message);
             Ok(())
         }
     };
@@ -129,11 +129,11 @@ async fn handle_message(message: &Message) {
     }
 }
 
-async fn process_incomming_message_from_server(message: &Result<Message, ReceiveMessageError>) -> bool {
+async fn process_incomming_message_from_server(current_user: &str, message: &Result<Message, ReceiveMessageError>) -> bool {
     use shared::ReceiveMessageError::*;
 
     match message {
-        Ok(m) => handle_message(&m).await,
+        Ok(m) => handle_message(current_user, &m).await,
         Err(GeneralStreamError(e)) => { 
             error!("Server stream problems. Error: {}", e);
         },
@@ -206,7 +206,7 @@ async fn main() -> Result<()> {
                 }
             },
             message = Message::receive_async(&mut stream_reader) => {
-                if !process_incomming_message_from_server(&message).await {
+                if !process_incomming_message_from_server(&user, &message).await {
                     break;
                 }
             }           
