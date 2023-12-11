@@ -2,7 +2,7 @@ use sqlx::{SqlitePool, FromRow};
 use anyhow::Result;
 use log::{info, debug};
 use std::time::SystemTime;
-use itertools::Itertools;
+//use itertools::Itertools;
 
 const DB_URL: &str = "sqlite://sqlite.db";
 

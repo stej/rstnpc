@@ -4,7 +4,7 @@ use clap::Parser;
 use shared::{Message, chaos};
 use tokio::net::tcp::{OwnedWriteHalf, OwnedReadHalf};
 use std::collections::HashMap;
-use std::net::SocketAddr;
+//use std::net::SocketAddr;
 use log::{info, debug, warn, error};
 use shared::ReceiveMessageError::*;
 use anyhow::{Result, Context};
@@ -23,20 +23,20 @@ struct ListenerArgs {
 
 #[derive(Debug)]
 struct ConnectedClients {
-    clients: HashMap<SocketAddr, OwnedWriteHalf>,
+    clients: HashMap<String, OwnedWriteHalf>,
 }
 
 impl ConnectedClients {
-    fn add(&mut self, client: OwnedWriteHalf) {
-        debug!("New socket: {:?}", client);
-        self.clients.insert(client.peer_addr().unwrap(), client);
+    fn add(&mut self, client: ConnectedClient) {
+        debug!("New client: {:?}", client.user_name);
+        self.clients.insert(client.user_name, client.stream_writer);
     }
 
     fn new() -> Self {
         Self { clients: HashMap::new() }
     }
 
-    fn remove(&mut self, client_to_remove: &SocketAddr) {
+    fn remove(&mut self, client_to_remove: &str) {
         debug!("all clients: {:?}", self.clients.keys());
         debug!("client to remove: {:?}", client_to_remove);
         match self.clients.remove(client_to_remove) {
@@ -49,21 +49,31 @@ impl ConnectedClients {
         }
     }
 
-    async fn broadcast_message(&mut self, incomming_message: (Message, SocketAddr)) {
+    async fn broadcast_message(&mut self, incomming_message: (Message, String)) {
         debug!("all clients : {:?}", self.clients.keys());
         info!("message: {:?}", incomming_message);
 
-        let (msg, message_origin_address) = incomming_message;
+        let (msg, message_origin_client) = incomming_message;
 
-        for (socket_addr,write_stream) in self.clients.iter_mut() {
-            if *socket_addr != message_origin_address {
+        for (client,write_stream) in self.clients.iter_mut() {
+            if *client != message_origin_client {
                 match msg.send_async(write_stream).await {
-                        Ok(_) => { info!("  ... sent to {:?}", socket_addr); },
+                        Ok(_) => { info!("  ... sent to {:?}", client); },
                         Err(e) => error!("Error sending message: {}", e),
                 }
             }
         }
     }
+}
+
+struct ConnectedClient {
+    user_name: String,
+    stream_writer: OwnedWriteHalf
+}
+
+struct IncommingClientMessage {
+    user_name: String,
+    message: Message,
 }
 
 #[tokio::main]
@@ -82,8 +92,8 @@ async fn main() -> Result<()> {
                             .await
                             .context("Unable to create listener. Is there any other instance running?")?;
 
-    let (tx_msg, rx_msg) = mpscchannel::<(SocketAddr, Message)>(1024);
-    let (tx_sock, rx_sock) = mpscchannel::<tokio::net::tcp::OwnedWriteHalf>(1024);
+    let (tx_msg, rx_msg) = mpscchannel::<IncommingClientMessage>(1024);
+    let (tx_sock, rx_sock) = mpscchannel::<ConnectedClient>(1024);
 
     // one global task that receives messages from (a) clients, (b) with new connections
     spawn_task_holding_connected_clients(rx_sock, rx_msg);
@@ -97,12 +107,12 @@ async fn main() -> Result<()> {
                 let Some((user_name, stream_reader, stream_writer)) = try_process_new_user(stream, &connected_users).await else {
                     continue;
                 };
-                connected_users.push(user_name);
+                connected_users.push(user_name.to_string());
                 // register new client; it's stored with other clients so that it's possible to broadcast the incomming message
-                tx_sock.send(stream_writer).await.unwrap();
+                tx_sock.send(ConnectedClient{user_name: user_name.to_string(), stream_writer}).await.unwrap();
                 
                 let tx_msg = tx_msg.clone();
-                spawn_new_task_handling_one_client(stream_reader, tx_msg);
+                spawn_new_task_handling_one_client(user_name, stream_reader, tx_msg);
             }
             Err(e) => { 
                 error!("Encountered IO error: {}. Skipping the new connection attempt.", e);
@@ -120,7 +130,7 @@ async fn try_process_new_user(stream: TcpStream, connected_users: &Vec<String>) 
     // checks whether the user that is trying to register on server, can be connected
     async fn try_user_handshake(stream_reader: &mut OwnedReadHalf, stream_writer: &mut OwnedWriteHalf, already_connected_users: &Vec<String>) -> Result<Option<String>>  {
         let hello_message = Message::receive_async(stream_reader).await;
-        let Ok(Message::ClientHello(user)) =  hello_message else  {
+        let Ok(Message::ClientHello {from: user }) =  hello_message else  {
             error!("Unexpected message from client: {:?}", hello_message);
             return Ok(None)
         };
@@ -147,22 +157,22 @@ async fn try_process_new_user(stream: TcpStream, connected_users: &Vec<String>) 
 /// incomming data come from two channels:
 /// - `rx_sock` - writeable streams to register for broadcasing
 /// - `rx_msg` - message to broadcast (that arrived from any client)
-fn spawn_task_holding_connected_clients(mut rx_sock: Receiver<OwnedWriteHalf>, mut rx_msg: Receiver<(SocketAddr, Message)>) {
+fn spawn_task_holding_connected_clients(mut rx_sock: Receiver<ConnectedClient>, mut rx_msg: Receiver<IncommingClientMessage>) {
     tokio::spawn(async move {
         let mut clients = ConnectedClients::new();
 
         loop {
             select! {
-                Some((socket_addr, message)) = rx_msg.recv() => {
-                    debug!("Message from channel {:?}: {:?}", socket_addr, message);
+                Some(IncommingClientMessage{user_name, message}) = rx_msg.recv() => {
+                    debug!("Message from channel {:?}: {:?}", user_name, message);
 
-                    match message {
-                        Message::ClientQuit(_) => clients.remove(&socket_addr),
-                        _ => clients.broadcast_message((message, socket_addr)).await,
+                    if matches!(message, Message::ClientQuit{from:_}) {
+                        clients.remove(&user_name)
                     }
-                }
-                Some(sock) = rx_sock.recv() => {
-                    clients.add(sock);
+                    clients.broadcast_message((message, user_name)).await;
+                },
+                Some(client) = rx_sock.recv() => {
+                    clients.add(client);
                 }
             }
         }
@@ -173,30 +183,35 @@ fn spawn_task_holding_connected_clients(mut rx_sock: Receiver<OwnedWriteHalf>, m
 /// 
 /// the task is using read part of the TCP stream to receive messages from the client
 /// the message is decoded and sent to the channel `tx_msg` to be broadcasted to other clients
-fn spawn_new_task_handling_one_client(mut stream: OwnedReadHalf, tx_msg: Sender<(SocketAddr, shared::Message)>)  {
+fn spawn_new_task_handling_one_client(user_name: String, mut stream: OwnedReadHalf, tx_msg: Sender<IncommingClientMessage>)  {
     tokio::spawn(async move {
-        async fn send(tx: &Sender<(SocketAddr, shared::Message)>, message: (SocketAddr, Message)) {
-            if let Err(e) = tx.send(message).await {
+
+        async fn send(tx: &Sender<IncommingClientMessage>, user_name: &str, message: Message) {
+            let msg = IncommingClientMessage { user_name: user_name.to_string(), message };
+            if let Err(e) = tx.send(msg).await {
                 error!("Error sending message: {}", e);
             }
         }
-        let stream_addr = stream.peer_addr().unwrap();
-        // first message is always ClientHello and my reply should be ServerHello if there is the client is unique
+
+        // send "hello" message to other clients
+        send(&tx_msg, &user_name, Message::ClientHello{ from: user_name.to_string() }).await;
+
+        // process other incomming messages
         loop {
             match Message::receive_async(&mut stream).await {
-                Ok(message) => send(&tx_msg, (stream_addr, message)).await,
+                Ok(message) => send(&tx_msg, &user_name, message).await,
                 Err(GeneralStreamError(e)) => { 
-                    error!("Client {} stream problems. Error: {}. Exitting...", stream_addr, e);
-                    send(&tx_msg, (stream_addr, Message::ClientQuit(stream_addr.to_string()))).await;
+                    error!("Client {} stream problems. Error: {}. Exitting...", user_name, e);
+                    send(&tx_msg, &user_name, Message::ClientQuit{from: user_name.to_string()}).await;
                     break;
                 },
                 Err(RemoteDisconnected(e)) => { 
-                    error!("Client {} disconnected. Error: {}. Exitting...", stream_addr, e);
-                    send(&tx_msg, (stream_addr, Message::ClientQuit(stream_addr.to_string()))).await;
+                    error!("Client {} disconnected. Error: {}. Exitting...", user_name, e);
+                    send(&tx_msg, &user_name, Message::ClientQuit{from: user_name.to_string()}).await;
                     break;
                 },
                 Err(DeserializationError(e)) => { 
-                    error!("Client {} sent malformed message. Error: {}", stream_addr, e);
+                    error!("Client {} sent malformed message. Error: {}", user_name, e);
                 },
             }
         }

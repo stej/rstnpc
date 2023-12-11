@@ -23,8 +23,8 @@ struct ConnectionArgs {
     user: String,
 }
 
-async fn process_stdin_command(command: &str, tcpstream: &mut OwnedWriteHalf) -> Result<(), Box<dyn std::error::Error>> {
-    async fn file_to_message(file_path: &str) -> Result<Message> {
+async fn process_stdin_command(user_name: &str, command: &str, tcpstream: &mut OwnedWriteHalf) -> Result<(), Box<dyn std::error::Error>> {
+    async fn file_to_message(user_name: &str, file_path: &str) -> Result<Message> {
         let path = Path::new(file_path);
         let mut content = Vec::new();
         File::open(path)
@@ -32,14 +32,15 @@ async fn process_stdin_command(command: &str, tcpstream: &mut OwnedWriteHalf) ->
             .read_to_end(&mut content)
             .await?;
         Ok(Message::File {
+            from: user_name.into(),
             name: path.file_name().context("Unable to get file name")?.to_str().context("Unable to get file name")?.into(),
             content,
         })
     }
 
-    async fn image_to_message(file_path: &str) -> Result<Message> {
-        let Message::File { name: _, content } = 
-            file_to_message(file_path).await.context("Image processing failed")?
+    async fn image_to_message(user_name: &str, file_path: &str) -> Result<Message> {
+        let Message::File { from:_, name: _, content } = 
+            file_to_message(user_name, file_path).await.context("Image processing failed")?
             else {
                 panic!("Unexpected type");
             };
@@ -51,18 +52,18 @@ async fn process_stdin_command(command: &str, tcpstream: &mut OwnedWriteHalf) ->
             .to_str()
             .context("Unable to get extension")?
         {
-            ".png" => Ok(Message::Image(content)),
-            _ => Ok(Message::Image(content)),
+            ".png" => Ok(Message::Image{ from: user_name.into(), content}),
+            _ => Ok(Message::Image{ from: user_name.into(), content}),
         }
     }
 
     let command = command.trim();
     let message = if command.starts_with(".file ") {
-        file_to_message(&command[".file ".len()..]).await?
+        file_to_message(user_name, &command[".file ".len()..]).await?
     } else if command.starts_with(".image ") {
-        image_to_message(&command[".image ".len()..]).await?
+        image_to_message(user_name, &command[".image ".len()..]).await?
     } else {
-        Message::Text(command.into())
+        Message::Text{ from: user_name.into(), content: command.into() }
     };
 
     debug!("-> {:?}", message);
@@ -98,19 +99,30 @@ async fn handle_message(message: &Message) {
         save_general_file(&name, content, "images").await
     }
     let message_result = match message {
-        Message::File { name, content } => {
-            println!("Receiving {}", name);
+        Message::File { from, name, content } => {
+            println!("[{}]: Receiving {}", from, name);
             save_file(name, content).await
         }
-        Message::Image(content) => {
-            println!("Receiving image...");
+        Message::Image{ from, content} => {
+            println!("[{}]: Receiving image...", from);
             save_img(content).await
         }
-        Message::Text(text) => {
-            println!("{}", text);
+        Message::Text{ from, content} => {
+            println!("[{}]: {}", from, content);
             Ok(())
         }
-        _ => Ok(()),
+        Message::ClientHello { from } => {
+            println!("[{}]: ...connected", from);
+            Ok(())
+        }
+        Message::ClientQuit { from } => {
+            println!("[{}]: ...disconnected", from);
+            Ok(())
+        },
+        _ => {
+            println!("Unexpected message: {:?}", message);
+            Ok(())
+        }
     };
     if let Err(e) = message_result {
         error!("{}", e);
@@ -137,7 +149,7 @@ async fn process_incomming_message_from_server(message: &Result<Message, Receive
 
 async fn try_send_hello(stream_reader: &mut OwnedReadHalf, stream_writer: &mut OwnedWriteHalf, user: &str) -> Result<()> {
 
-    let msg = Message::ClientHello(user.into());
+    let msg = Message::ClientHello{ from: user.into() };
 
     // note: now idea how to just call
     //    msg.send_async(stream_writer).await?; 
@@ -189,7 +201,7 @@ async fn main() -> Result<()> {
                 if command == ".quit" {
                     break;
                 }
-                if let Err(e) = process_stdin_command(&command, &mut stream_writer).await {
+                if let Err(e) = process_stdin_command(&user, &command, &mut stream_writer).await {
                     error!("{}", e);
                 }
             },

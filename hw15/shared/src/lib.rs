@@ -10,12 +10,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[derive(Serialize, Deserialize, Debug)]
 
 pub enum Message {
-    Text(String),
-    Image(Vec<u8>),
-    File { name: String, content: Vec<u8> },
-    ClientHello(String),
+    Text { from: String, content: String },
+    Image { from: String, content: Vec<u8> },
+    File { from: String, name: String, content: Vec<u8> },
+    ClientHello { from: String },
     ServerHello,
-    ClientQuit(String),
+    ClientQuit { from: String },
 }
 
 pub const STREAM_READ_TIMEOUT: Duration = Duration::from_millis(100);
