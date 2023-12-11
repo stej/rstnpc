@@ -116,3 +116,41 @@ Na základě tohoto oznámení pak hlavní vlákno může klienta vymazat ze sez
 #### Slabé místo - nepřehlednost kanálů
 
 Na první pohled není úplně jasné, odkud kam který kanál směřuje. Na druhou stranu vzhledem k tomu, že je jasný směr (`tx` vs. `rx`), je tok dat jasný a dá se lépe usuzovat, jak se s daty pracuje, než za použití mutexů. Alespoň subjektivně to tak vnímám.
+
+## Databáze
+
+Zvolená [sqlite](https://www.sqlite.org/index.html). 
+
+Do databáze zapisuje a čte z ní jen *broadcasting task*, proto není potřeba řešit zápis z více threadů/tasků. 
+
+### Design
+
+Dvě tabulky:
+
+#### Tabulka **Messages**
+
+`CREATE TABLE Messages (time INTEGER, client VARCHAR(250) NOT NULL, message blob NOT NULL)`
+
+Uchovává zprávy přes všechny klienty. Zprávy jsou serializované do stejného formátu, v jakém se posílají po síti.
+
+#### Tabulka **LastOnline**
+
+`CREATE TABLE LastOnline (time INTEGER, client VARCHAR(250) NOT NULL PRIMARY KEY);`
+
+Uchovává pro každého klienta, kdy naposledy byl spatřen. Updatuje se vždy pro všechny připojené kleinty v okamžiku, kdy je poslána broadcastem nějaká zpráva.
+
+### Doposlání zpráv
+
+V případě, že byl klient odpojený a některé zprávy mu chybí, pošle mu je server hned poté, co se připojí.
+
+Flow:
+1. zjistí se, kdy naposledy byl připojený (tabulka `LastOnline`).
+2. z tabulky `Messages` se vyberou všechny zprávy, kde datum je větší než to z bodu (1)
+3. setřídí se podle data
+4. pošlou se klientovi
+
+### Datová security
+
+- nekontroluje se délka zpráv - možné přehlcení serveru i databáze
+- tabulky v DB rostou, nepromazávají se - možné dojití místa na disku
+
