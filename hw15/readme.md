@@ -9,20 +9,23 @@ Nejdříve spustit server. Poté, co nastartuje, je možné pouštět klienty.
 **Server:**
 ```
 cd hw11\server
+set RUST_LOG=info
 cargo run -- -s 127.0.0.1 -p 8080
 ```
 
 **Client:**
 ```
 cd hw11\client
-cargo run -- -s 127.0.0.1 -p 8080
+set RUST_LOG=info
+cargo run -- -s 127.0.0.1 -p 8080 -u "hugo"
 ```
 
 Note:
 > Pro různé simulace chybových stavů je možné spustit u obou (server/client) `run8080_with_chaos_monkey.bat`. V tomto módu náhodně padá (de)serializace zpráv. 
+> Toto jsem používal v dřívějších úlohách (hw13 tuším) na simulaci chyb. V tuto chvíli už nechané jen pro případ.
 
 Jak vypadá standardní interakce:
-![image](hw13.gif)
+![image](hw15.gif)
 
 # Commandy (strana klienta)
 - `.file <path>`: 
@@ -38,114 +41,78 @@ Jak vypadá standardní interakce:
     
 ![image](server_client.drawio.png)
 
-# Design 
+# Design
 
-- neblokující
-- čte z TCP streamu s timeoutem
-- používá minimum vláken
-- periodicky prochází všechny klienty a snaží se z nich číst
+## Security
 
-# Otazníky, podivnosti
+Bezpečnost jsem nepovažoval za potřebnou. Je to tak jednoduchá aplikace, že prosté specifikování username na command lině je dostatečné. 
 
-## Čtení s timeoutem
+Krom toho kryptování zpráv, uchovávání hesel atd. je něco, na co se mi už nedostává času, takže byla volba, kam čas investovat lépe. 
 
-Na serveru se potenciálně sleze více klientů. Nechci pro každýho vytvářet vlákno a v něm mít blokující `read`. Důvody:
-- neškáluje to, vlákna nejsou zadarmo
-- tipuju, že neexistuje nějaký pěkný zavření spojení než násilně zabít thread (protože na stream se kvůli ownershipu dostanu jen z toho threadu)
+## Async
+Vše je async za použití tokio.
 
-Proto se pokouším číst s timeoutem. Původně jsem si myslel, že použiju `TcpStream.peek` ale ten je blokující. Pokud do streamu ještě nikdo nezapsal, visí.
-Implementace je tedy takhle škaredá:
+Vzhledem k tomu, že testy není možné mít asynchronní, použil jsem `tokio_test`, i když mám tuchu, že v prezentaci byla jiná varianta.
+Note: *matně si pamatuju, že jsme se async testů dotkli, ale i tady jsem záměrně použil jednodušší řešení*.
+
+Odpadly tak starosti, jak číst ze stramu s timeoutem.
+
+## Tasks
+
+Záměrně jsem se vyhnul použití mutexů a navázaných technik a zkusil jsem výhradně použít *channels*. Jde především o kód na serveru.
+
+### Server - N* task pro příchozí zprávy
+
+Pro každého klienta (TCP spojení) vytvořím task, kde čekám na zprávu od klienta. Po dekódování je zpráva poslána kanálem dále ke zpracování.
+
+Viz funkce:
 ```rust
-pub fn receive(stream: &mut TcpStream) -> Result<Option<Message>, Box<dyn Error>> {
-    // store original timeout so that it can be set later
-    let timeout_original = stream.read_timeout().unwrap_or(None);
+.\hw15\server\src\main.rs
 
-    // short timeout just to simulate peek
-    stream.set_read_timeout(Some(STREAM_READ_TIMEOUT))?;
-
-    // read size of sent data (first 4 bytes); trying to read with short timeout
-    let data_len = {
-        let mut len_bytes = [0u8; 4];
-        let read_exact_result = stream.read_exact(&mut len_bytes);
-        // set timeout back to original value
-        stream.set_read_timeout(timeout_original)?;
-
-        // we got the data length or timeouted - handle that
-        match read_exact_result {
-            Ok(_) => u32::from_be_bytes(len_bytes) as usize,
-            Err(e) => {
-                match e.kind() {
-                    std::io::ErrorKind::TimedOut => return Ok(None),     //timeout
-                    std::io::ErrorKind::Interrupted => return Ok(None),     //timeout   - takhle je to v dokumentaci read_exact; ale ve skutecnosti hazi TimedOut
-                    std::io::ErrorKind::UnexpectedEof => return Ok(None),   //client disconnected
-                    _ => { println!("{:?}, kind: {}", e, e.kind()); return Err(Box::new(e)) }
-                }
-            },
-        }
-    };
-    // lets read the rest, there should be the data with given length
-    let message = {
-        let mut buffer =  vec![0u8; data_len];
-        stream.read_exact(&mut buffer)?;
-        Message::deserialize(&buffer)?
-    };
-    Ok(Some(message))
-}
+async fn spawn_new_task_handling_one_client(
+        user_name: String, 
+        mut stream: OwnedReadHalf, 
+        tx_msg: Sender<IncommingClientMessage>)
 ```
 
-Co mi nesedí:
+### Server - 1 task registrující připojené klienty a rozesílající zprávy broadcastem
 
-1. pokud klient bude posílat dostatečně pomalu, celý se mi to rozdrbe. Klient může posílat data tak pomalu, že se nevleze do timeoutu. Tj. tady bych zase musel dát timeout na "nekonečno", ať to funguje správně. A jsem zpátky u blokujícího volání.
+V každém předchozím tasku (funkce `spawn_new_task_handling_one_client`) se používá `tx_msg: Sender<IncommingClientMessage>`, kam se zapisuje zpráva došlá od nějakého klienta.
 
-1. `Result<Option<_>, Box<dyn Error>>` - je tohle normální? Je to podivně škaredý, ale funkční.
+Na druhém konci pak poslouchá 1 task společný pro všechny clienty. 
 
-1. Jak správně skombinovat více errorů dohromady? Mám funkci (viz sample), kde se může stát `std::io::Error` (setování timeoutu, timeout při čtení ze streamu), ale taky `bincode::Error` při deserializaci. Nevím, jak se toto řeší správně. 
-
-    => *vyřešeno pomocí `thiserror` crate. Viz [How to Use the “thiserror” Crate in Rust](https://betterprogramming.pub/a-simple-guide-to-using-thiserror-crate-in-rust-eee6e442409b)
-
-## Uchovávání connection
-
-Aktuálně (podle prezentace) mám takto:
+Viz funkce:
 ```rust
-struct ConnectedClients {
-    clients: HashMap<SocketAddr, TcpStream>
-}
+.\hw15\server\src\main.rs
+
+fn spawn_task_holding_connected_clients(
+    mut rx_sock: Receiver<ConnectedClient>,
+    mut rx_msg: Receiver<IncommingClientMessage>,
+    tx_client_disconnect: Sender<String>)
 ```
 
-Ale původně jsem měl jako:
-```rust
-struct ConnectedClients<'a> {
-    clients: Vec<TcpStream>
-    // pripadne hratky s &mut
-    //clients: Vec<&'a mut TcpStream>
-}
-```
+Je to aktor, který
+- drží si povědomí o připojených klientech na jednom místě - kvůli broadcastu
+- naslouchá od ostatních tasků na příchozí zprávy 
+- v případě, že se klient odpojí, pošle informaci kanálem (viz `tx_client_disconnect`) do hlavního vlákna
+    - to je potřeba pro správnou funkci handshake
 
-Tady jsem dost bojoval s ownershipem. Měl jsem totiž tento kód: 
-```rust
+Diagram tasků:
+![image](tasks.drawio.png )
 
-fn read_messages_from_clients<'t>(clients: &'t mut ConnectedClients) -> Vec<(Message, &'t mut TcpStream)> {
-    let mut received = Vec::new();
-    for client in &mut clients.clients {
-        // simplified a lot; more here: https://github.com/stej/rstnpc/commit/d340e8f31b72dcedff0ec70ff6e306d295f39b2e
-        let msg = read_message(client);
-        received.push((m, client))
-    }
-    received
-}
 
-let mut clients = ConnectedClients::new();
+#### Slabé místo - duplicita dat
 
-for stream in listener.incoming() {
-    accept_connections(&mut clients, stream);
-    let incomming_messages = read_messages_from_clients(&mut clients);
+Jména registrovaných klientů jsou na dvou místech.
 
-    // problem here, because clients were mut borrowed twice
-    // the reason probably is that the TcpStream objects are stored in (*) clients, (*) incomming_messages
+1. v hlavním vlákně, které naslouchá na příchozí spojení. Tady je potřeba znát všechn jména proto, aby nebylo možné nechat připojit klienta se stejným jménem dvakrát.
 
-    broadcast_messages(&mut clients, incomming_messages);
-    std::thread::sleep(Duration::from_millis(10));
-}
-```
+2. v broadcast tasku. Zde je potřeba pro správnou funkci broadcastu, ukládání dat do db (např. kdy naposledy byl uživatel přihlášen) atd.
 
-Dobrej workaround tedy vypadá, že owner je `HashMap` a když chci se jen odkázat do ní, předávám si to pomocí klíčů `SocketAddr`, který jsou `Copy`.
+Bylo by ideální mít možnost obousměrné mezitaskové komunikace, ale tu jsem zatím nenašel. Abych obě hromady dat synchronizoval, použil jsem alespoň jednosměrný kanál z broadcast tasku, který notifikuje hlavní vlákno o tom, že se klient odpojil. 
+
+Na základě tohoto oznámení pak hlavní vlákno může klienta vymazat ze seznamu a dovolí mu připojit se později.
+
+#### Slabé místo - nepřehlednost kanálů
+
+Na první pohled není úplně jasné, odkud kam který kanál směřuje. Na druhou stranu vzhledem k tomu, že je jasný směr (`tx` vs. `rx`), je tok dat jasný a dá se lépe usuzovat, jak se s daty pracuje, než za použití mutexů. Alespoň subjektivně to tak vnímám.
