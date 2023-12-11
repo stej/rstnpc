@@ -100,31 +100,37 @@ async fn main() -> Result<()> {
 
     let (tx_msg, rx_msg) = mpscchannel::<IncommingClientMessage>(1024);
     let (tx_sock, rx_sock) = mpscchannel::<ConnectedClient>(1024);
+    let (tx_client_disconnect, mut rx_client_disconnect) = mpscchannel::<String>(1);
 
     // one global task that receives (a) chat messages from clients, (b) new connections
-    spawn_task_holding_connected_clients(rx_sock, rx_msg);
+    spawn_task_holding_connected_clients(rx_sock, rx_msg, tx_client_disconnect);
 
     let mut connected_users = Vec::new();
     loop {
-        match listener.accept().await {
-            Ok((stream, addr)) => {
-                info!("New connection from {}", addr);
-
-                let Some((user_name, stream_reader, stream_writer)) = try_process_new_user(stream, &connected_users).await else {
+        select!(
+            new_client = listener.accept() => match new_client {
+                Ok((stream, addr)) => {
+                    info!("New connection from {}", addr);
+    
+                    let Some((user_name, stream_reader, stream_writer)) = try_process_new_user(stream, &connected_users).await else {
+                        continue;
+                    };
+                    connected_users.push(user_name.to_string());
+                    // register new client; it's stored with other clients so that it's possible to broadcast the incomming message
+                    tx_sock.send(ConnectedClient{user_name: user_name.to_string(), stream_writer}).await.unwrap();
+                    
+                    let tx_msg = tx_msg.clone();
+                    spawn_new_task_handling_one_client(user_name, stream_reader, tx_msg);
+                }
+                Err(e) => { 
+                    error!("Encountered IO error: {}. Skipping the new connection attempt.", e);
                     continue;
-                };
-                connected_users.push(user_name.to_string());
-                // register new client; it's stored with other clients so that it's possible to broadcast the incomming message
-                tx_sock.send(ConnectedClient{user_name: user_name.to_string(), stream_writer}).await.unwrap();
-                
-                let tx_msg = tx_msg.clone();
-                spawn_new_task_handling_one_client(user_name, stream_reader, tx_msg);
+                }
+            },
+            Some(user_name) = rx_client_disconnect.recv() => {
+                connected_users.retain(|u| u != &user_name);
             }
-            Err(e) => { 
-                error!("Encountered IO error: {}. Skipping the new connection attempt.", e);
-                continue;
-            }
-        };
+        )
     }
 }
 
@@ -163,12 +169,13 @@ async fn try_process_new_user(stream: TcpStream, connected_users: &Vec<String>) 
 /// incomming data come from two channels:
 /// - `rx_sock` - writeable streams to register for broadcasing
 /// - `rx_msg` - message to broadcast (that arrived from any client)
+/// - `tx_client_disconnect` - notification channel back to main thread that the client has disconnected
 /// 
 /// there is also some DB logic
 /// - user presence is updated after each incomming message
 /// - all incomming messages are stored in db
 /// - if the client is offline, the messages are stored in db and sent to the client when it connects again
-fn spawn_task_holding_connected_clients(mut rx_sock: Receiver<ConnectedClient>, mut rx_msg: Receiver<IncommingClientMessage>) {
+fn spawn_task_holding_connected_clients(mut rx_sock: Receiver<ConnectedClient>, mut rx_msg: Receiver<IncommingClientMessage>, tx_client_disconnect: Sender<String>) {
 
     tokio::spawn(async move {
         let mut clients = ConnectedClients::new();
@@ -179,7 +186,8 @@ fn spawn_task_holding_connected_clients(mut rx_sock: Receiver<ConnectedClient>, 
                     debug!("Message from channel {:?}: {:?}", user_name, message);
                     
                     if matches!(message, Message::ClientQuit{from:_}) {
-                        clients.remove(&user_name)
+                        clients.remove(&user_name);
+                        tx_client_disconnect.send(user_name.clone()).await.unwrap();
                     } 
 
                     match message {
