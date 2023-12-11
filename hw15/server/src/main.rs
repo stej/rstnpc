@@ -64,6 +64,12 @@ impl ConnectedClients {
             }
         }
     }
+
+    fn get_clients(&self) -> Vec<String> {
+        self.clients.keys()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+    }
 }
 
 struct ConnectedClient {
@@ -95,7 +101,7 @@ async fn main() -> Result<()> {
     let (tx_msg, rx_msg) = mpscchannel::<IncommingClientMessage>(1024);
     let (tx_sock, rx_sock) = mpscchannel::<ConnectedClient>(1024);
 
-    // one global task that receives messages from (a) clients, (b) with new connections
+    // one global task that receives (a) chat messages from clients, (b) new connections
     spawn_task_holding_connected_clients(rx_sock, rx_msg);
 
     let mut connected_users = Vec::new();
@@ -157,7 +163,13 @@ async fn try_process_new_user(stream: TcpStream, connected_users: &Vec<String>) 
 /// incomming data come from two channels:
 /// - `rx_sock` - writeable streams to register for broadcasing
 /// - `rx_msg` - message to broadcast (that arrived from any client)
+/// 
+/// there is also some DB logic
+/// - user presence is updated after each incomming message
+/// - all incomming messages are stored in db
+/// - if the client is offline, the messages are stored in db and sent to the client when it connects again
 fn spawn_task_holding_connected_clients(mut rx_sock: Receiver<ConnectedClient>, mut rx_msg: Receiver<IncommingClientMessage>) {
+
     tokio::spawn(async move {
         let mut clients = ConnectedClients::new();
 
@@ -165,13 +177,26 @@ fn spawn_task_holding_connected_clients(mut rx_sock: Receiver<ConnectedClient>, 
             select! {
                 Some(IncommingClientMessage{user_name, message}) = rx_msg.recv() => {
                     debug!("Message from channel {:?}: {:?}", user_name, message);
-
+                    
                     if matches!(message, Message::ClientQuit{from:_}) {
                         clients.remove(&user_name)
-                    }
+                    } 
+
+                    match message {
+                        Message::Text{ .. } | 
+                        Message::Image { .. } | 
+                        Message::File { .. } => db::store_message(&user_name, &message).await,
+                        _ => {}
+                    };
+
                     clients.broadcast_message((message, user_name)).await;
+
+                    db::update_online_users(&clients.get_clients()).await;
                 },
-                Some(client) = rx_sock.recv() => {
+                Some(mut client) = rx_sock.recv() => {
+                    for msg in db::get_missing_messages(&client.user_name).await {
+                        msg.send_async(&mut client.stream_writer).await.unwrap();
+                    }
                     clients.add(client);
                 }
             }
