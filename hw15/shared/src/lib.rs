@@ -47,7 +47,7 @@ impl Message {
         bincode::deserialize(&from)
     }
 
-    pub async fn send_async(&self, tcp_stream: &mut OwnedWriteHalf) -> Result<(), Box<dyn Error>> {
+    pub async fn send(&self, tcp_stream: &mut OwnedWriteHalf) -> Result<(), Box<dyn Error>> {
         let data = self.serialize()?;
         let data_len = data.len() as u32;
         tcp_stream.write(&data_len.to_be_bytes()).await?;
@@ -55,7 +55,7 @@ impl Message {
         Ok(())
     }
 
-    pub async fn receive_async(stream: &mut OwnedReadHalf) -> Result<Message, ReceiveMessageError> {
+    pub async fn receive(stream: &mut OwnedReadHalf) -> Result<Message, ReceiveMessageError> {
 
         use ReceiveMessageError::*;
         

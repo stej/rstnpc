@@ -67,7 +67,7 @@ async fn process_stdin_command(user_name: &str, command: &str, tcpstream: &mut O
     };
 
     debug!("-> {:?}", message);
-    message.send_async(tcpstream).await
+    message.send(tcpstream).await
 }
 
 async fn handle_message(current_user: &str, message: &Message) {
@@ -158,10 +158,10 @@ async fn try_send_hello(stream_reader: &mut OwnedReadHalf, stream_writer: &mut O
     //    `dyn std::error::Error` cannot be shared between threads safely
     //    the trait `Sync` is not implemented for `dyn std::error::Error` etc.
     // somewhere used anyhow::from_boxed (https://github.com/dtolnay/anyhow/issues/83), but it's obviously not possible anymore (anyhow::error::from_boxed is private)
-    if let Err(e) = msg.send_async(stream_writer).await {
+    if let Err(e) = msg.send(stream_writer).await {
          return Err(anyhow!("Problems when sending hello message to server: {}", e));
     }
-    if let Message::ServerHello = Message::receive_async(stream_reader).await? {
+    if let Message::ServerHello = Message::receive(stream_reader).await? {
         info!("Connected as {}", user);
         Ok(())
     } else {
@@ -205,7 +205,7 @@ async fn main() -> Result<()> {
                     error!("{}", e);
                 }
             },
-            message = Message::receive_async(&mut stream_reader) => {
+            message = Message::receive(&mut stream_reader) => {
                 if !process_incomming_message_from_server(&user, &message).await {
                     break;
                 }

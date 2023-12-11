@@ -57,7 +57,7 @@ impl ConnectedClients {
 
         for (client,write_stream) in self.clients.iter_mut() {
             if *client != message_origin_client {
-                match msg.send_async(write_stream).await {
+                match msg.send(write_stream).await {
                         Ok(_) => { info!("  ... sent to {:?}", client); },
                         Err(e) => error!("Error sending message: {}", e),
                 }
@@ -141,7 +141,7 @@ async fn try_process_new_user(stream: TcpStream, connected_users: &Vec<String>) 
 
     // checks whether the user that is trying to register on server, can be connected
     async fn try_user_handshake(stream_reader: &mut OwnedReadHalf, stream_writer: &mut OwnedWriteHalf, already_connected_users: &Vec<String>) -> Result<Option<String>>  {
-        let hello_message = Message::receive_async(stream_reader).await;
+        let hello_message = Message::receive(stream_reader).await;
         let Ok(Message::ClientHello {from: user }) =  hello_message else  {
             error!("Unexpected message from client: {:?}", hello_message);
             return Ok(None)
@@ -150,7 +150,7 @@ async fn try_process_new_user(stream: TcpStream, connected_users: &Vec<String>) 
             error!("User {} already connected", user);
             return Ok(None)
         }
-        match Message::ServerHello.send_async(stream_writer).await {
+        match Message::ServerHello.send(stream_writer).await {
             Ok(()) => Ok(Some(user)),
             Err(e) => { error!("Error when sending server hello: {}", e); Ok(None)}, // convert to anyhow??
         }
@@ -203,7 +203,7 @@ fn spawn_task_holding_connected_clients(mut rx_sock: Receiver<ConnectedClient>, 
                 },
                 Some(mut client) = rx_sock.recv() => {
                     for msg in db::get_missing_messages(&client.user_name).await {
-                        msg.send_async(&mut client.stream_writer).await.unwrap();
+                        msg.send(&mut client.stream_writer).await.unwrap();
                     }
                     clients.add(client);
                 }
@@ -231,7 +231,7 @@ fn spawn_new_task_handling_one_client(user_name: String, mut stream: OwnedReadHa
 
         // process other incomming messages
         loop {
-            match Message::receive_async(&mut stream).await {
+            match Message::receive(&mut stream).await {
                 Ok(message) => send(&tx_msg, &user_name, message).await,
                 Err(GeneralStreamError(e)) => { 
                     error!("Client {} stream problems. Error: {}. Exitting...", user_name, e);
