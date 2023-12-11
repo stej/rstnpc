@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 use log::{info, debug, warn, error};
 use shared::ReceiveMessageError::*;
 use anyhow::{Result, Context};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{channel as mpscchannel, Sender, Receiver};
 use tokio::select;
 
@@ -94,21 +94,10 @@ async fn main() -> Result<()> {
             Ok((stream, addr)) => {
                 info!("New connection from {}", addr);
 
-                let (mut stream_reader, mut stream_writer) = stream.into_split();
-                let (register_user, user_name) = match user_can_connect(&mut stream_reader, &mut stream_writer, &connected_users).await {
-                        Err(e) => {
-                            error!("Error when checking if user can connect: {}", e);
-                            (false, None)
-                        }
-                        Ok((false, user)) => (false, user),
-                        Ok((true, user)) => (true, user),
-                    };
-                if !register_user {
-                    drop(stream_reader);
-                    drop(stream_writer);
+                let Some((user_name, stream_reader, stream_writer)) = try_process_new_user(stream, &connected_users).await else {
                     continue;
-                }
-                connected_users.push(user_name.unwrap());
+                };
+                connected_users.push(user_name);
                 // register new client; it's stored with other clients so that it's possible to broadcast the incomming message
                 tx_sock.send(stream_writer).await.unwrap();
                 
@@ -123,24 +112,32 @@ async fn main() -> Result<()> {
     }
 }
 
-// checks whether the user that is trying to register on server, can be connected
-async fn user_can_connect(stream_reader: &mut OwnedReadHalf, stream_writer: &mut OwnedWriteHalf, already_connected_users: &Vec<String>) -> Result<(bool, Option<String>)>  {
-    let hello_message = Message::receive_async(stream_reader).await?;
-    match hello_message {
-        Message::ClientHello(user) => {
-            if already_connected_users.contains(&user) {
-                error!("User {} already connected", user);
-                return Ok((false, None))
-            }
-            match Message::ServerHello.send_async(stream_writer).await {
-                Ok(()) => Ok((true, Some(user))),
-                Err(_) => Ok((false, None)), // convert to anyhow??
-            }
-        },
-        _ => {
+// makes first contact with client and checks whether the client can be connected
+//
+// the client can not be connected if there is any other already connected client with the same name
+async fn try_process_new_user(stream: TcpStream, connected_users: &Vec<String>) -> Option<(String, OwnedReadHalf, OwnedWriteHalf)> {
+
+    // checks whether the user that is trying to register on server, can be connected
+    async fn try_user_handshake(stream_reader: &mut OwnedReadHalf, stream_writer: &mut OwnedWriteHalf, already_connected_users: &Vec<String>) -> Result<Option<String>>  {
+        let hello_message = Message::receive_async(stream_reader).await;
+        let Ok(Message::ClientHello(user)) =  hello_message else  {
             error!("Unexpected message from client: {:?}", hello_message);
-            return Ok((false, None))
+            return Ok(None)
+        };
+        if already_connected_users.contains(&user) {
+            error!("User {} already connected", user);
+            return Ok(None)
         }
+        match Message::ServerHello.send_async(stream_writer).await {
+            Ok(()) => Ok(Some(user)),
+            Err(e) => { error!("Error when sending server hello: {}", e); Ok(None)}, // convert to anyhow??
+        }
+    }
+
+    let (mut stream_reader, mut stream_writer) = stream.into_split();
+    match try_user_handshake(&mut stream_reader, &mut stream_writer, &connected_users).await {
+        Ok(Some(user_name)) => Some((user_name, stream_reader, stream_writer)),
+        _ => None,
     }
 }
 
