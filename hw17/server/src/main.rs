@@ -1,16 +1,16 @@
 mod db;
+mod connected_clients;
 
 use clap::Parser;
 use shared::{Message, chaos};
 use tokio::net::tcp::{OwnedWriteHalf, OwnedReadHalf};
-use std::collections::HashMap;
-//use std::net::SocketAddr;
 use log::{info, debug, warn, error};
 use shared::ReceiveMessageError::*;
 use anyhow::{Result, Context};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{channel as mpscchannel, Sender, Receiver};
 use tokio::select;
+use connected_clients::{ConnectedClient, ConnectedClients};
 
 // looks like common code for client and server, but this is not typical dry sample
 #[derive(Parser)]
@@ -21,61 +21,7 @@ struct ListenerArgs {
     host: String,
 }
 
-#[derive(Debug)]
-struct ConnectedClients {
-    clients: HashMap<String, OwnedWriteHalf>,
-}
 
-impl ConnectedClients {
-    fn add(&mut self, client: ConnectedClient) {
-        debug!("New client: {:?}", client.user_name);
-        self.clients.insert(client.user_name, client.stream_writer);
-    }
-
-    fn new() -> Self {
-        Self { clients: HashMap::new() }
-    }
-
-    fn remove(&mut self, client_to_remove: &str) {
-        debug!("all clients: {:?}", self.clients.keys());
-        debug!("client to remove: {:?}", client_to_remove);
-        match self.clients.remove(client_to_remove) {
-            Some(_) => (),
-            None => debug!("Client {} already removed.", client_to_remove),
-        }
-
-        if self.clients.is_empty() {
-            info!("No clients connected.");
-        }
-    }
-
-    async fn broadcast_message(&mut self, incomming_message: (Message, String)) {
-        debug!("all clients : {:?}", self.clients.keys());
-        info!("message: {:?}", incomming_message);
-
-        let (msg, message_origin_client) = incomming_message;
-
-        for (client,write_stream) in self.clients.iter_mut() {
-            if *client != message_origin_client {
-                match msg.send(write_stream).await {
-                        Ok(_) => { info!("  ... sent to {:?}", client); },
-                        Err(e) => error!("Error sending message: {}", e),
-                }
-            }
-        }
-    }
-
-    fn get_clients(&self) -> Vec<String> {
-        self.clients.keys()
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>()
-    }
-}
-
-struct ConnectedClient {
-    user_name: String,
-    stream_writer: OwnedWriteHalf
-}
 
 struct IncommingClientMessage {
     user_name: String,
@@ -117,7 +63,7 @@ async fn main() -> Result<()> {
                     };
                     connected_users.push(user_name.to_string());
                     // register new client; it's stored with other clients so that it's possible to broadcast the incomming message
-                    tx_sock.send(ConnectedClient{user_name: user_name.to_string(), stream_writer}).await.unwrap();
+                    tx_sock.send(connected_clients::ConnectedClient{user_name: user_name.to_string(), stream_writer}).await.unwrap();
                     
                     let tx_msg = tx_msg.clone();
                     spawn_new_task_handling_one_client(user_name, stream_reader, tx_msg);
