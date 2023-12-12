@@ -1,5 +1,8 @@
+#[macro_use] extern crate rocket;
+
 mod db;
 mod connected_clients;
+mod web;
 
 use clap::Parser;
 use shared::{Message, chaos};
@@ -21,14 +24,12 @@ struct ListenerArgs {
     host: String,
 }
 
-
-
 struct IncommingClientMessage {
     user_name: String,
     message: Message,
 }
 
-#[tokio::main]
+#[rocket::main]
 async fn main() -> Result<()> {
     shared::logging::init();
     if chaos::enabled() {
@@ -36,6 +37,11 @@ async fn main() -> Result<()> {
     }
 
     db::ensure_db_exists().await?;
+
+    tokio::spawn(async move {
+        web::rocket().launch().await.unwrap();
+        info!("Web server has exited..")
+    });
 
     let args = ListenerArgs::parse();
     info!("Listening on {}:{}", args.host, args.port);
