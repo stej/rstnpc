@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use tokio::net::tcp::OwnedWriteHalf;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use tokio::sync::mpsc::{channel as mpscchannel, Sender, Receiver};
-use tokio::select;
-use crate::db;
+//use tokio::select;
+use crate::actor_db;
+use actor_db::DbMessage;
 
 #[derive(Debug)]
 pub struct ConnectedClients {
@@ -59,7 +60,9 @@ impl ConnectedClients {
 }
 
 
-pub struct ConnectedClientsActor;
+pub struct ConnectedClientsActor {
+    pub db: ActorRef<crate::actor_db::DbMessage>
+}
 
 pub struct IncommingClientMessage {
     pub user_name: String,
@@ -113,16 +116,19 @@ impl Actor for ConnectedClientsActor {
                     match message {
                         Message::Text{ .. } | 
                         Message::Image { .. } | 
-                        Message::File { .. } => db::store_message(&user_name, &message).await,
+                        Message::File { .. } => self.db.cast(DbMessage::StoreChatMessage { user_name: user_name.clone(), message: message.clone() }).expect("Save to db failed."),  //db::store_message(&user_name, &message).await,
                         _ => {}
                     };
 
                     clients.broadcast_message((message, user_name)).await;
 
-                    db::update_online_users(&clients.get_clients()).await;
+                    //db::update_online_users(&clients.get_clients()).await;
+                    self.db.cast(DbMessage::UpdateLastSeen { user_names: clients.get_clients() }).expect("Unable to update users's last presence.")
             },
             ConnectedClientsActorMessage::NewClient { user_name, mut stream_writer } => {
-                for msg in db::get_missing_messages(&user_name).await {
+                //for msg in db::get_missing_messages(&user_name).await {
+                let missing_messages = ractor::call!(self.db, DbMessage::GetMissingChatMessageSinceLastSeen, user_name.clone()).expect("Unable to get missing messages.");
+                for msg in missing_messages.iter() {
                     msg.send(&mut stream_writer).await.unwrap();
                 }
                 clients.add(user_name, stream_writer);

@@ -2,18 +2,19 @@
 
 mod db;
 mod actor_connected_clients;
+mod actor_db;
 mod web;
 
 use clap::Parser;
 use shared::{Message, chaos};
 use tokio::net::tcp::{OwnedWriteHalf, OwnedReadHalf};
-use log::{info, debug, warn, error};
+use log::{info, warn, error};
 use shared::ReceiveMessageError::*;
 use anyhow::{Result, Context};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc::{channel as mpscchannel, Sender, Receiver};
-use tokio::select;
-use actor_connected_clients::{ConnectedClientMessage, ConnectedClients, IncommingClientMessage};
+//use tokio::sync::mpsc::{channel as mpscchannel, Sender, Receiver};
+//use tokio::select;
+//use actor_connected_clients::{ConnectedClientMessage, ConnectedClients, IncommingClientMessage};
 use ractor::{Actor, ActorRef};
 use actor_connected_clients::ConnectedClientsActorMessage;
 
@@ -47,9 +48,15 @@ async fn main() -> Result<()> {
                             .await
                             .context("Unable to create listener. Is there any other instance running?")?;
 
-    let (connected_cli_actor, connected_cli_actor_handle) = Actor::spawn(None, actor_connected_clients::ConnectedClientsActor, ())
-                                                                .await
-                                                                .expect("Failed to start actor with connected clients");
+    let (db_actor, db_actor_handle) = 
+        Actor::spawn(None, actor_db::DbAccessActor, ())
+            .await
+            .expect("Failed to start actor with access to db");
+
+    let (connected_cli_actor, connected_cli_actor_handle) = 
+        Actor::spawn(None, actor_connected_clients::ConnectedClientsActor{db: db_actor}, ())
+            .await
+            .expect("Failed to start actor with connected clients");
                                                             
     loop {
         match listener.accept().await {
