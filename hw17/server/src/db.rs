@@ -128,6 +128,28 @@ async fn get_last_online_time(db_url: &str, client: &str) -> Result<Option<i64>>
         Some(LastClientOnlinePresence{time, ..}) => Ok(Some(time)),
         None => Ok(None)
     }
+}
+
+pub async fn get_all_last_online_data() -> Vec<(String, std::time::SystemTime)> {
+    match get_all_last_online_data_priv(DB_URL).await {
+        Err(e) => { error!("Error getting users's last seen from DB: {}", e);
+                    vec![]
+        },
+        Ok(ret) => ret
+    }
+
+}
+async fn get_all_last_online_data_priv(db_url: &str) -> Result<Vec<(String, std::time::SystemTime)>> {
+    let db = SqlitePool::connect(db_url).await?;
+    let res = 
+        sqlx::query_as::<_, LastClientOnlinePresence>("select * from LastOnline")
+        .fetch_all(&db)
+        .await?;
+    db.close().await;
+    let res = res.into_iter()
+        .map(|row| (row.client, SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(row.time as u64)))
+        .collect();
+    Ok(res)
 
 }
 

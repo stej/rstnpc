@@ -5,11 +5,17 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 
 pub struct DbAccessActor;
 
+pub struct UserData {
+    pub user_name: String,
+    pub last_seen: std::time::SystemTime,
+}
+
 pub enum DbMessage {
     StoreChatMessage{ user_name: String, message: Message },
     UpdateLastSeen{ user_names: Vec<String> },
     //GetMissingChatMessageSinceLastSeen{ user_name: String, reply: RpcReplyPort<Vec<Message>> },
-    GetMissingChatMessageSinceLastSeen(String, RpcReplyPort<Vec<Message>>)
+    GetMissingChatMessageSinceLastSeen(String, RpcReplyPort<Vec<Message>>),
+    GetAllUsersLastSeen(RpcReplyPort<Vec<UserData>>),
 }
 
 #[async_trait]
@@ -22,7 +28,7 @@ impl Actor for DbAccessActor {
         Ok(())
     }
 
-    async fn handle(&self, _myself: ActorRef<Self::Msg>, message: Self::Msg, clients: &mut Self::State) -> Result<(), ActorProcessingErr> {
+    async fn handle(&self, _myself: ActorRef<Self::Msg>, message: Self::Msg, _: &mut Self::State) -> Result<(), ActorProcessingErr> {
         match message {
             DbMessage::StoreChatMessage{user_name, message} => {
                 db::store_message(&user_name, &message).await
@@ -36,6 +42,16 @@ impl Actor for DbAccessActor {
             },
             DbMessage::UpdateLastSeen { user_names} => {
                 db::update_online_users(&user_names).await;
+            },
+            DbMessage::GetAllUsersLastSeen(reply) => {
+                let user_data = 
+                    db::get_all_last_online_data().await
+                    .into_iter()
+                    .map(|(user, time)| UserData { user_name: user, last_seen: time})
+                    .collect();
+                if reply.send(user_data).is_err() {
+                    error!("Error sending reply");
+                }
             }
         }
         Ok(())

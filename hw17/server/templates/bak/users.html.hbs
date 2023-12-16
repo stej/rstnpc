@@ -1,0 +1,15 @@
+{{#> shared title="Users and last login" }}
+{{#*inline "body"}} 
+<h1>Users</h1>
+
+<table class="people_list">
+    <tr><th>User</th><th>Last logged in</th>
+    {{#each users}}
+    <tr>
+        <td>{{this.0}}</td>
+        <td>{{this.1}}</td>
+    </tr>
+    {{/each}}
+</table>
+{{/inline}}
+{{/shared}}

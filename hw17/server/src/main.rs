@@ -36,11 +36,6 @@ async fn main() -> Result<()> {
 
     db::ensure_db_exists().await?;
 
-    tokio::spawn(async move {
-        web::rocket().launch().await.unwrap();
-        info!("Web server has exited..")
-    });
-
     let args = ListenerArgs::parse();
     info!("Listening on {}:{}", args.host, args.port);
 
@@ -49,14 +44,19 @@ async fn main() -> Result<()> {
                             .context("Unable to create listener. Is there any other instance running?")?;
 
     let (db_actor, db_actor_handle) = 
-        Actor::spawn(None, actor_db::DbAccessActor, ())
+        Actor::spawn(Some("actor_db".to_string()), actor_db::DbAccessActor, ())
             .await
             .expect("Failed to start actor with access to db");
 
     let (connected_cli_actor, connected_cli_actor_handle) = 
-        Actor::spawn(None, actor_connected_clients::ConnectedClientsActor{db: db_actor}, ())
+        Actor::spawn(Some("actor_clients".to_string()), actor_connected_clients::ConnectedClientsActor{db: db_actor.clone()}, ())
             .await
             .expect("Failed to start actor with connected clients");
+
+    tokio::spawn(async move {
+        web::rocket(db_actor.clone()).launch().await.unwrap();
+        info!("Web server has exited..")
+    });
                                                             
     loop {
         match listener.accept().await {
@@ -114,7 +114,6 @@ async fn try_process_new_user(stream: TcpStream, actor: &ActorRef<ConnectedClien
 /// 
 /// the task is using read part of the TCP stream to receive messages from the client
 /// the message is decoded and sent to the channel `tx_msg` to be broadcasted to other clients
-//fn spawn_new_task_handling_one_client(user_name: String, mut stream: OwnedReadHalf, tx_msg: Sender<IncommingClientMessage>)  {
 fn spawn_new_task_handling_one_client(user_name: String, mut stream: OwnedReadHalf, actor: ActorRef<ConnectedClientsActorMessage>)  {
     tokio::spawn(async move {
 

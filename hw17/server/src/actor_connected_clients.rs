@@ -3,8 +3,6 @@ use shared::Message;
 use std::collections::HashMap;
 use tokio::net::tcp::OwnedWriteHalf;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
-use tokio::sync::mpsc::{channel as mpscchannel, Sender, Receiver};
-//use tokio::select;
 use crate::actor_db;
 use actor_db::DbMessage;
 
@@ -85,7 +83,7 @@ pub enum ConnectedClientsActorMessage
         stream_writer: OwnedWriteHalf
     },
     CheckUserCanConnect(String, RpcReplyPort<bool>),    // todo: struct?
-    GetClientsCount(RpcReplyPort<usize>),
+    //GetClientsCount(RpcReplyPort<usize>),
 }
 
 #[async_trait]
@@ -101,11 +99,11 @@ impl Actor for ConnectedClientsActor {
 
     async fn handle(&self, _myself: ActorRef<Self::Msg>, message: Self::Msg, clients: &mut Self::State) -> Result<(), ActorProcessingErr> {
         match message {
-            ConnectedClientsActorMessage::GetClientsCount(reply) => {
-                if reply.send(clients.clients.len()).is_err() {
-                    error!("Error sending reply");
-                }
-            },
+            // ConnectedClientsActorMessage::GetClientsCount(reply) => {
+            //     if reply.send(clients.clients.len()).is_err() {
+            //         error!("Error sending reply");
+            //     }
+            // },
             ConnectedClientsActorMessage::IncommingChatMessage { user_name, message } => {
                 debug!("Message from channel {:?}: {:?}", user_name, message);
                     
