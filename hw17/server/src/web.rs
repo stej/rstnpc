@@ -1,5 +1,5 @@
 use rocket::http::Status;
-use rocket::response::{content, status};
+use rocket::response::{content, status, Redirect};
 use rocket::{Rocket, Request, Build, State, serde};
 
 use crate::actor_db;
@@ -7,16 +7,18 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use chrono::{DateTime, Utc};
 use std::time::SystemTime;
 
-//use handlebars::Handlebars;
 use rocket_dyn_templates::Template;
 use std::collections::HashMap;
 
+fn  format_time(time: SystemTime) -> String {
+    // let time: DateTime<Utc> = time.into(); 
+    // time.to_rfc3339()
+    let datetime: DateTime<Utc> = time.into();
+    datetime.format("%Y-%m-%d %T").to_string()
+}
+
 #[get("/hello/<name>/<age>")]
 async fn hello(state: &State<ActorRef<actor_db::DbMessage>>, name: &str, age: i8) -> String {
-    fn  format_time(time: SystemTime) -> String {
-        let time: DateTime<Utc> = time.into(); 
-        time.to_rfc3339()
-    }
     let add = match ractor::call!(state, actor_db::DbMessage::GetAllUsersLastSeen) {
         Ok(cli) => cli.into_iter()
                         .map(|r| format!("{}: {:?}<br>", r.user_name, format_time(r.last_seen)))
@@ -47,19 +49,9 @@ fn default_catcher(status: Status, req: &Request<'_>) -> status::Custom<String> 
 }
 
 use serde::Serialize;
-#[derive(Serialize)]
-struct Data {
-    users: Vec<(String, String)>,
-    parent: String,
-    rendered: String
-}
 #[get("/users")]
 async fn users(state: &State<ActorRef<actor_db::DbMessage>>) -> Template {
 
-    fn  format_time(time: SystemTime) -> String {
-        let time: DateTime<Utc> = time.into(); 
-        time.to_rfc3339()
-    }
     let Ok(cli) = ractor::call!(state, actor_db::DbMessage::GetAllUsersLastSeen) else {
         return Template::render("error", &HashMap::from([("error", "Unable to get users")]));
     };
@@ -67,9 +59,43 @@ async fn users(state: &State<ActorRef<actor_db::DbMessage>>) -> Template {
                         .map(|r| (r.user_name, format_time(r.last_seen)))
                         .collect::<Vec<_>>();
     info!("Returning users: {:?}", data);
-    
-    let datax = Data { users: data, parent: "shared".into(), rendered: format_time(std::time::SystemTime::now()) };
+
+    #[derive(Serialize)]
+    struct Data {
+        users: Vec<(String, String)>,
+        rendered: String
+    }
+    let datax = Data { users: data, rendered: format_time(std::time::SystemTime::now()) };
     Template::render("users", &datax)
+}
+
+#[post("/users/delete/<user>")]
+async fn delete_user(user: &str, state: &State<ActorRef<actor_db::DbMessage>>) -> Redirect {
+
+    let Ok(()) = state.cast(actor_db::DbMessage::ForgetUser{user_name: user.into()}) else {
+        error!("Error when deleting user.");
+        return rocket::response::Redirect::to(uri!(users));
+    };
+    rocket::response::Redirect::to(uri!(users))
+}
+
+#[get("/messages?<user>")]
+async fn messages(user: Option<String>, state: &State<ActorRef<actor_db::DbMessage>>) -> Template {
+    let Ok(messages) = ractor::call!(state, actor_db::DbMessage::ListAllMessages, user) else {
+        return Template::render("error", &HashMap::from([("error", "Unable to get messages")]));
+    };
+    let data = messages.into_iter()
+                        .map(|r| (format_time(r.time), r.user_name, format!("{:?}", r.message)))
+                        .collect::<Vec<_>>();
+    info!("Returning messages: {:?}", data);
+    
+    #[derive(Serialize)]
+    struct Data {
+        messages: Vec<(String, String, String)>,
+        rendered: String
+    }
+    let data = Data { messages: data, rendered: format_time(std::time::SystemTime::now()) };
+    Template::render("messages", &data)
 }
 
 pub fn rocket(db_actor: ActorRef<actor_db::DbMessage>) -> Rocket<Build> {
@@ -77,8 +103,7 @@ pub fn rocket(db_actor: ActorRef<actor_db::DbMessage>) -> Rocket<Build> {
     let handlebars = handlebars::Handlebars::new();
 
     rocket::build()
-        .mount("/", routes![hello, users, forced_error])
-        //.mount("/users", routes![users, forced_error])
+        .mount("/", routes![hello, users, delete_user, messages, forced_error])
         .attach(Template::fairing())
         .manage(db_actor)
         .manage(handlebars)

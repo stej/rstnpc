@@ -1,10 +1,22 @@
+{{! how to correctly work with partials and layout was pretty tough to find. Finally found here: https://rustrepo.com/repo/sunng87-handlebars-rust-rust-template-engine }}
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
+    <!-- <link rel="stylesheet" href="https://unpkg.com/mvp.css">  -->
+    <link rel="stylesheet" href="https://chr15m.github.io/minimal-stylesheet/minimal.css">
+    <style>
+        footer { 
+            padding-top: 1em;
+            font-size: smaller
+        }
+        table td { padding-left: 0.6em; }
+    </style>
     <title>{{title}}</title>
 </head>
 <body>
+    <div> <a href="/messages">Messages</a> </div>
+    <div> <a href="/users">Users</a> </div>
     {{> body }}
     
 <footer>

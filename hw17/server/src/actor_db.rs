@@ -10,12 +10,20 @@ pub struct UserData {
     pub last_seen: std::time::SystemTime,
 }
 
+pub struct StoredMessage {
+    pub user_name: String,
+    pub time: std::time::SystemTime,
+    pub message: Message
+}
+
 pub enum DbMessage {
     StoreChatMessage{ user_name: String, message: Message },
     UpdateLastSeen{ user_names: Vec<String> },
     //GetMissingChatMessageSinceLastSeen{ user_name: String, reply: RpcReplyPort<Vec<Message>> },
     GetMissingChatMessageSinceLastSeen(String, RpcReplyPort<Vec<Message>>),
     GetAllUsersLastSeen(RpcReplyPort<Vec<UserData>>),
+    ListAllMessages(Option<String>, RpcReplyPort<Vec<StoredMessage>>),
+    ForgetUser { user_name: String},
 }
 
 #[async_trait]
@@ -52,6 +60,18 @@ impl Actor for DbAccessActor {
                 if reply.send(user_data).is_err() {
                     error!("Error sending reply");
                 }
+            },
+            DbMessage::ListAllMessages(user, reply) => {
+                let messages = db::get_all_messages(user).await
+                    .into_iter()
+                    .map(|(time, user_name, message)| StoredMessage {time, user_name, message })
+                    .collect();
+                if reply.send(messages).is_err() {
+                    error!("Error sending reply with messages");
+                }
+            },
+            DbMessage::ForgetUser { user_name } => {
+                db::forget_user(user_name).await;
             }
         }
         Ok(())

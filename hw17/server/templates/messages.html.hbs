@@ -1,0 +1,16 @@
+{{#> shared title="Stored Messages" }}
+{{#*inline "body"}} 
+<h1>Stored messages</h1>
+
+<table class="messages_list">
+    <tr><th>Time</th><th>Who</th><th>Message</th></tr>
+    {{#each messages}}
+    <tr>
+        <td>{{this.0}}</td>
+        <td><a href="/messages?user={{this.1}}">{{this.1}}</a></td>
+        <td>{{this.2}}</td>
+    </tr>
+    {{/each}}
+</table>
+{{/inline}}
+{{/shared}}

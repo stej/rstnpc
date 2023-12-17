@@ -216,6 +216,54 @@ async fn get_missing_messages_priv(db_url: &str, user: &str) -> Result<Vec<Messa
     Ok(result)
 }
 
+pub async fn forget_user(user: String)  {
+    if let Err(e) = forget_user_priv(DB_URL, user).await {
+        error!("Error fogetting user in DB: {}", e);                     // note: probably good reason to exit program gracefully
+    }
+}
+
+async fn forget_user_priv(db_url: &str, user: String) -> Result<()> {
+    let db = SqlitePool::connect(db_url).await?;
+    let result1 = sqlx::query("DELETE from LastOnline WHERE client = (?);").bind(&user).execute(&db).await?;
+    let result2 = sqlx::query("DELETE from Messages WHERE client = (?);").bind(&user).execute(&db).await?;
+    debug!("Delete for user {:?}: {:?}/{:?}", user, result1, result2);
+    db.close().await;
+    Ok(())
+}
+
+pub async fn get_all_messages(user: Option<String>) -> Vec<(SystemTime, String, Message)> {
+    match get_all_messages_priv(DB_URL, &user).await {
+        Err(e) => { 
+            error!("Error when getting messages from DB for user {:?}: {}", &user, e);
+            return vec![]
+        },
+        Ok(messages) => messages
+    }
+}
+async fn get_all_messages_priv(db_url: &str, user: &Option<String>) -> Result<Vec<(SystemTime, String, Message)>> {
+    let query = match user {
+        Some(user) =>
+            sqlx::query_as::<_, DbMessage>("select * from Messages where client = (?) order by time asc").bind(user),
+        None => 
+            sqlx::query_as::<_, DbMessage>("select * from Messages order by time asc"),
+    };
+    let db = SqlitePool::connect(db_url).await?;
+    let res = 
+        query
+        .fetch_all(&db)
+        .await?
+        .into_iter()
+        .map(|row| {
+            let message = Message::deserialize(&row.message).unwrap();
+            (SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(row.time as u64), 
+            row.client, 
+            message)
+        })
+        .collect();
+    db.close().await;
+    Ok(res)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
