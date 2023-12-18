@@ -1,4 +1,5 @@
 #[macro_use] extern crate rocket;
+#[macro_use] extern crate rocket_include_static_resources;
 
 mod db;
 mod actor_connected_clients;

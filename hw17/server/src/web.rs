@@ -48,6 +48,12 @@ fn default_catcher(status: Status, req: &Request<'_>) -> status::Custom<String> 
     status::Custom(status, msg)
 }
 
+use rocket_include_static_resources::{EtagIfNoneMatch, StaticContextManager, StaticResponse};
+
+static_response_handler! {
+    "/favicon.ico" => favicon => "favicon",
+}
+
 use serde::Serialize;
 #[get("/users")]
 async fn users(state: &State<ActorRef<actor_db::DbMessage>>) -> Template {
@@ -107,6 +113,10 @@ pub fn rocket(db_actor: ActorRef<actor_db::DbMessage>) -> Rocket<Build> {
         .attach(Template::fairing())
         .manage(db_actor)
         .manage(handlebars)
+        .attach(static_resources_initializer!(
+            "favicon" => "favicon.ico"
+        ))
+        .mount("/", routes![favicon])
         .register("/", catchers![general_not_found, default_catcher])
         //.register("/hello", catchers![hello_not_found])
         //.register("/hello/Sergio", catchers![sergio_error])
