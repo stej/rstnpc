@@ -7,7 +7,9 @@
     {{#each messages}}
     <tr>
         <td class="color">{{this.time}}</td>
-        <td class="user">{{this.user}}</td>
+        <td class="user">
+            <a href="/messages?user={{this.user}}">{{this.user}}</a>
+        </td>
         <td>
             {{#if (eq this.kind "t")}}
                 <img height="16" alt="file" src="/images/textbubble.png" /> {{this.data}}

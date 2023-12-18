@@ -73,7 +73,6 @@ pub enum ConnectedClientsActorMessage
         stream_writer: OwnedWriteHalf
     },
     CheckUserCanConnect(String, RpcReplyPort<bool>),    // todo: struct?
-    //GetClientsCount(RpcReplyPort<usize>),
 }
 
 #[async_trait]
@@ -89,11 +88,6 @@ impl Actor for ConnectedClientsActor {
 
     async fn handle(&self, _myself: ActorRef<Self::Msg>, message: Self::Msg, clients: &mut Self::State) -> Result<(), ActorProcessingErr> {
         match message {
-            // ConnectedClientsActorMessage::GetClientsCount(reply) => {
-            //     if reply.send(clients.clients.len()).is_err() {
-            //         error!("Error sending reply");
-            //     }
-            // },
             ConnectedClientsActorMessage::IncommingChatMessage { user_name, message } => {
                 debug!("Message from channel {:?}: {:?}", user_name, message);
                     
@@ -110,11 +104,9 @@ impl Actor for ConnectedClientsActor {
 
                     clients.broadcast_message((message, user_name)).await;
 
-                    //db::update_online_users(&clients.get_clients()).await;
                     self.db.cast(DbMessage::UpdateLastSeen { user_names: clients.get_clients() }).expect("Unable to update users's last presence.")
             },
             ConnectedClientsActorMessage::NewClient { user_name, mut stream_writer } => {
-                //for msg in db::get_missing_messages(&user_name).await {
                 let missing_messages = ractor::call!(self.db, DbMessage::GetMissingChatMessageSinceLastSeen, user_name.clone()).expect("Unable to get missing messages.");
                 for msg in missing_messages.iter() {
                     msg.send(&mut stream_writer).await.unwrap();

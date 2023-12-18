@@ -19,7 +19,6 @@ pub struct StoredMessage {
 pub enum DbMessage {
     StoreChatMessage{ user_name: String, message: Message },
     UpdateLastSeen{ user_names: Vec<String> },
-    //GetMissingChatMessageSinceLastSeen{ user_name: String, reply: RpcReplyPort<Vec<Message>> },
     GetMissingChatMessageSinceLastSeen(String, RpcReplyPort<Vec<Message>>),
     GetAllUsersLastSeen(RpcReplyPort<Vec<UserData>>),
     ListAllMessages(Option<String>, RpcReplyPort<Vec<StoredMessage>>),
@@ -41,7 +40,6 @@ impl Actor for DbAccessActor {
             DbMessage::StoreChatMessage{user_name, message} => {
                 db::store_message(&user_name, &message).await
             },
-            // DbMessage::GetMissingChatMessageSinceLastSeen { user_name, reply } => {
             DbMessage::GetMissingChatMessageSinceLastSeen(user_name, reply) => {
                 let messages = db::get_missing_messages(&user_name).await;
                 if reply.send(messages).is_err() {
