@@ -1,34 +1,21 @@
 use rocket::http::Status;
 use rocket::response::{content, status, Redirect};
 use rocket::{Rocket, Request, Build, State, serde};
-use sqlx::types::Text;
 
-use crate::{actor_db, web_handlebars_ext};
-use ractor::{ActorRef, Message};
+use crate::actor_db;
+use ractor::ActorRef;
 use chrono::{DateTime, Utc};
 use std::time::SystemTime;
 
 use rocket_dyn_templates::Template;
 use std::collections::HashMap;
 
+use base64::{engine::general_purpose, Engine as _};
+
 fn  format_time(time: SystemTime) -> String {
-    // let time: DateTime<Utc> = time.into(); 
-    // time.to_rfc3339()
     let datetime: DateTime<Utc> = time.into();
     datetime.format("%Y-%m-%d %T").to_string()
 }
-
-// #[get("/hello/<name>/<age>")]
-// async fn hello(state: &State<ActorRef<actor_db::DbMessage>>, name: &str, age: i8) -> String {
-//     let add = match ractor::call!(state, actor_db::DbMessage::GetAllUsersLastSeen) {
-//         Ok(cli) => cli.into_iter()
-//                         .map(|r| format!("{}: {:?}<br>", r.user_name, format_time(r.last_seen)))
-//                         .collect::<Vec<String>>()
-//                         .join(","),
-//         Err(_) => "error...".into()
-//     };
-//     format!("Hello, {} year old named {}! Res: {}", age, name, add)
-// }
 
 #[get("/<code>")]
 fn forced_error(code: u16) -> Status {
@@ -47,12 +34,6 @@ fn general_not_found() -> content::RawHtml<&'static str> {
 fn default_catcher(status: Status, req: &Request<'_>) -> status::Custom<String> {
     let msg = format!("{} ({})", status, req.uri());
     status::Custom(status, msg)
-}
-
-use rocket_include_static_resources::{EtagIfNoneMatch, StaticContextManager, StaticResponse};
-
-static_response_handler! {
-    "/favicon.ico" => favicon => "favicon",
 }
 
 use serde::Serialize;
@@ -91,36 +72,45 @@ async fn messages(user: Option<String>, state: &State<ActorRef<actor_db::DbMessa
     let Ok(messages) = ractor::call!(state, actor_db::DbMessage::ListAllMessages, user) else {
         return Template::render("error", &HashMap::from([("error", "Unable to get messages")]));
     };
-    let data = messages.into_iter()
-                        .map(|r| (format_time(r.time), r.user_name, format!("{:?}", r.message), r.message))
-                        .collect::<Vec<_>>();
-    info!("Returning messages: {:?}", data);
     
     #[derive(Serialize)]
+    struct TemplateMessage {
+        user: String,
+        time: String,
+        kind: String,
+        data: String,
+    }
+    #[derive(Serialize)]
     struct Data {
-        messages: Vec<(String, String, String, shared::Message)>,
+        messages: Vec<TemplateMessage>,
         rendered: String,
-        messages2: Vec<(String, String)>
     }
 
-    use base64::{engine::general_purpose, Engine as _};
-    let messages2 = 
-        data.iter()
-        .map(|(t, u, m0, m)| match m {
-            shared::Message::Text { from, content } => ("text".to_string(), content.to_string()),
-            shared::Message::Image { from, content } => ("image".to_string(), general_purpose::STANDARD.encode(&content)),
-            shared::Message::File { from, name, content } => ("file".to_string(), name.to_string()),
-            _ => ("".to_string(),"".to_string()),
+    let messages = 
+        messages.into_iter()
+        .map(|row| {
+            let (kind, data) = match row.message {
+                shared::Message::Text { content, .. } => ("t".to_string(), content.to_string()),
+                shared::Message::Image { content, .. } => ("i".to_string(), general_purpose::STANDARD.encode(&content)),
+                shared::Message::File { name, .. } => ("f".to_string(), name.to_string()),
+                _ => ("".to_string(),"".to_string()),
+            };
+            TemplateMessage { user: row.user_name,  time: format_time(row.time), kind, data }
         })
         .collect();
-    let data = Data { messages: data, rendered: format_time(std::time::SystemTime::now()), messages2 };
+    let data = Data { rendered: format_time(std::time::SystemTime::now()), messages };
     Template::render("messages", &data)
 }
 
 #[get("/")]
 async fn index() -> Redirect {
-
     rocket::response::Redirect::to(uri!(users))
+}
+
+static_response_handler! {
+    "/favicon.ico" => favicon => "favicon",
+    "/images/disk.png" => disk_png => "disk",
+    "/images/textbubble.png" => textbubble_png => "tbubble",
 }
 
 pub fn rocket(db_actor: ActorRef<actor_db::DbMessage>) -> Rocket<Build> {
@@ -128,35 +118,14 @@ pub fn rocket(db_actor: ActorRef<actor_db::DbMessage>) -> Rocket<Build> {
     rocket::build()
         .mount("/", routes![index, users, delete_user, messages, forced_error])
         .manage(db_actor)
-        //.manage(handlebars)
-        //.attach(Template::fairing())
-        .attach(Template::custom(|engines| {
-            engines.handlebars.register_helper("simple-helper", Box::new(web_handlebars_ext::SimpleHelper));
+        .attach(Template::custom(|_engines| {
+            //engines.handlebars.register_helper("simple-helper", Box::new(web_handlebars_ext::SimpleHelper));
         }))
         .attach(static_resources_initializer!(
-            "favicon" => "favicon.ico"
+            "favicon" => "images/favicon.ico",
+            "disk" => "images/disk.png",
+            "tbubble" => "images/comment-text.png"
         ))
-        .mount("/", routes![favicon])
+        .mount("/", routes![favicon, disk_png, textbubble_png])
         .register("/", catchers![general_not_found, default_catcher])
-        //.register("/hello", catchers![hello_not_found])
-        //.register("/hello/Sergio", catchers![sergio_error])
 }
-
-// fn rocket() -> Rocket<Build> {
-//     rocket::build()
-//         // .mount("/", routes![hello, hello]) // uncomment this to get an error
-//         // .mount("/", routes![unmanaged]) // uncomment this to get a sentinel error
-//         .mount("/", routes![hello, forced_error])
-//         .register("/", catchers![general_not_found, default_catcher])
-//         .register("/hello", catchers![hello_not_found])
-//         .register("/hello/Sergio", catchers![sergio_error])
-// }
-
-// #[rocket::main]
-// async fn main() {
-//     if let Err(e) = rocket().launch().await {
-//         println!("Whoops! Rocket didn't launch!");
-//         // We drop the error to get a Rocket-formatted panic.
-//         drop(e);
-//     };
-// }

@@ -2,38 +2,40 @@
 {{#*inline "body"}} 
 <h1>Stored messages</h1>
 
-{{! 
-<table class="messages_list">
+<table id="messages_list">
     <tr><th>Time</th><th>Who</th><th>Message</th><th></th></tr>
-    {x{#each messages}}
+    {{#each messages}}
     <tr>
-        <td>{{this.0}}</td>
-        <td><a href="/messages?user={{this.1}}">{{this.1}}</a></td>
-        <!-- <td>{{this.2}}</td> -->
-        <!-- <td>{{ simple-helper this.3 }}</td> -->
-    </tr>
-    {x{/each}}
-</table>
-}}
-
-<table class="messages_list">
-    <tr><th>Time</th><th>Who</th><th>Message</th><th></th></tr>
-    {{#each messages2}}
-    <tr>
-        <td>{{this.0}}</td>
+        <td class="color">{{this.time}}</td>
+        <td class="user">{{this.user}}</td>
         <td>
-            {{#if (eq this.0 "text")}}
-                text: {{this.1}}
+            {{#if (eq this.kind "t")}}
+                <img height="16" alt="file" src="/images/textbubble.png" /> {{this.data}}
             {{/if}}
-            {{#if (eq this.0 "image")}}
-                <img alt="f" src="data:image/png;base64,{{this.1}}" />
+            {{#if (eq this.kind "i")}}
+                <img height="60" alt="f" src="data:image/png;base64,{{this.data}}" />
             {{/if}}
-            {{#if (eq this.0 "file")}}
-                file: {{this.1}}
+            {{#if (eq this.kind "f")}}
+                <img height="16" alt="file" src="/images/disk.png" /> {{this.data}}
             {{/if}}
         </td>
     </tr>
     {{/each}}
 </table>
+
+<script>
+    let table = document.getElementById("messages_list");
+    let tds = table.getElementsByTagName('td');
+
+    [...tds].forEach((el) => {
+        if (!el.classList.contains('user')) { return; }
+        [...el.parentElement.getElementsByTagName('td')].forEach((td) => {
+            if (!td.classList.contains('color')) { return; }
+            td.style.borderBottom = '2px';
+            td.style.borderBottomColor = stringToColour(el.innerText);
+            td.style.borderBottomStyle = 'solid';
+        });
+    });
+</script>
 {{/inline}}
 {{/shared}}

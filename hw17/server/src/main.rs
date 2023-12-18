@@ -5,7 +5,6 @@ mod db;
 mod actor_connected_clients;
 mod actor_db;
 mod web;
-mod web_handlebars_ext;
 
 use clap::Parser;
 use shared::{Message, chaos};
