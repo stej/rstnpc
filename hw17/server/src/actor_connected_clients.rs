@@ -62,16 +62,6 @@ pub struct ConnectedClientsActor {
     pub db: ActorRef<crate::actor_db::DbMessage>
 }
 
-pub struct IncommingClientMessage {
-    pub user_name: String,
-    pub message: Message,
-}
-
-pub struct ConnectedClientMessage {
-    pub user_name: String,
-    pub stream_writer: OwnedWriteHalf
-}
-
 pub enum ConnectedClientsActorMessage
 {
     IncommingChatMessage {

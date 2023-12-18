@@ -64,53 +64,14 @@ async fn insert_message(db_url: &str, client: &str, message: &Message) -> Result
     let time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?.as_millis() as i64;
 
     let db = SqlitePool::connect(db_url).await?;
-    let result = sqlx::query("INSERT INTO Messages (time, client, message) VALUES (?, ?, ?);")
+    sqlx::query("INSERT INTO Messages (time, client, message) VALUES (?, ?, ?);")
         .bind(time)
         .bind(client)
         .bind(message_blob)
-        .execute(&db).await.unwrap();
-    debug!("Insert result: {:?}", result);
+        .execute(&db).await?;
     db.close().await;
     Ok(())
 }
-
-// pub async fn get_messages(without_client: Option<&str>) -> Result<Vec<(std::time::SystemTime, String, Message)>> {
-//     get_messages_from_db(DB_URL, without_client).await
-// }
-// async fn get_messages_from_db(db_url: &str, without_client: Option<&str>) -> Result<Vec<(std::time::SystemTime, String, Message)>> {
-//     let query = match without_client {
-//         Some(client) =>
-//             sqlx::query_as::<_, DbMessage>("select * from Messages where client != (?)").bind(client),
-//         None => 
-//             sqlx::query_as::<_, DbMessage>("select * from Messages"),
-//     };
-//     let db = SqlitePool::connect(db_url).await?;
-//     let res = 
-//         query
-//         .fetch_all(&db)
-//         .await?
-//         .iter()
-//         .map(|row| {
-//             let message = Message::deserialize(&row.message).unwrap();
-//             (SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(row.time as u64), row.client.to_owned(), message)
-//         })
-//         .collect();
-//     db.close().await;
-//     Ok(res)
-// }
-
-// async fn update_last_online(db_url: &str, client: &str) -> Result<()> {
-//     let time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?.as_millis() as i64;
-
-//     let db = SqlitePool::connect(db_url).await?;
-//     let result = sqlx::query("INSERT OR REPLACE INTO LastOnline (time, client) VALUES (?, ?);")
-//         .bind(time)
-//         .bind(client)
-//         .execute(&db).await.unwrap();
-//     debug!("Update last online result: {:?}", result);
-//     db.close().await;
-//     Ok(())
-// }
 
 async fn get_last_online_time(db_url: &str, client: &str) -> Result<Option<i64>> {
     let db = SqlitePool::connect(db_url).await?;
@@ -120,10 +81,6 @@ async fn get_last_online_time(db_url: &str, client: &str) -> Result<Option<i64>>
         .fetch_optional(&db)
         .await?;
     db.close().await;
-    // match res {
-    //     Some(LastClientOnlinePresence{time, ..}) => Ok(Some(SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(time as u64))),
-    //     None => Ok(None)
-    // }
     match res {
         Some(LastClientOnlinePresence{time, ..}) => Ok(Some(time)),
         None => Ok(None)
@@ -171,13 +128,12 @@ async fn update_online_users_priv(db_url: &str, users: &[String]) -> Result<()> 
 
     let db = SqlitePool::connect(db_url).await?;
     for user in users {
-        let result = sqlx::query("INSERT OR REPLACE INTO LastOnline (time, client) VALUES (?, ?);")
+        sqlx::query("INSERT OR REPLACE INTO LastOnline (time, client) VALUES (?, ?);")
             .bind(time)
             .bind(user)  // note: not very safe...
-            .execute(&db).await.unwrap();
-        debug!("Update for user '{:?}' result: {:?}", user, result);
+            .execute(&db).await?;
     }
-    db.close().await;
+    db.close().await;   // how that .close().await works together with .await? ????
     Ok(())
 }
 
@@ -210,8 +166,6 @@ async fn get_missing_messages_priv(db_url: &str, user: &str) -> Result<Vec<Messa
                 Message::deserialize(&row.message).unwrap()
             })
             .collect();
-    debug!("Update for user '{:?}' result: {:?}", user, result);
-
     db.close().await;
     Ok(result)
 }
@@ -224,9 +178,8 @@ pub async fn forget_user(user: String)  {
 
 async fn forget_user_priv(db_url: &str, user: String) -> Result<()> {
     let db = SqlitePool::connect(db_url).await?;
-    let result1 = sqlx::query("DELETE from LastOnline WHERE client = (?);").bind(&user).execute(&db).await?;
-    let result2 = sqlx::query("DELETE from Messages WHERE client = (?);").bind(&user).execute(&db).await?;
-    debug!("Delete for user {:?}: {:?}/{:?}", user, result1, result2);
+    sqlx::query("DELETE from LastOnline WHERE client = (?);").bind(&user).execute(&db).await?;
+    sqlx::query("DELETE from Messages WHERE client = (?);").bind(&user).execute(&db).await?;
     db.close().await;
     Ok(())
 }
@@ -254,10 +207,9 @@ async fn get_all_messages_priv(db_url: &str, user: &Option<String>) -> Result<Ve
         .await?
         .into_iter()
         .map(|row| {
-            let message = Message::deserialize(&row.message).unwrap();
             (SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(row.time as u64), 
             row.client, 
-            message)
+            Message::deserialize(&row.message).unwrap())
         })
         .collect();
     db.close().await;
@@ -267,7 +219,6 @@ async fn get_all_messages_priv(db_url: &str, user: &Option<String>) -> Result<Ve
 #[cfg(test)]
 mod test {
     use super::*;
-    //use itertools::Itertools;
 
     const DB_URL_TESTING: &str = "sqlite://testing_sqlite_a3b094/sqlite_test.db";
     const DB_URL_DIR: &str = "testing_sqlite_a3b094"; // matches the db_url_testing
