@@ -1,9 +1,10 @@
 use rocket::http::Status;
 use rocket::response::{content, status, Redirect};
 use rocket::{Rocket, Request, Build, State, serde};
+use sqlx::types::Text;
 
-use crate::actor_db;
-use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
+use crate::{actor_db, web_handlebars_ext};
+use ractor::{ActorRef, Message};
 use chrono::{DateTime, Utc};
 use std::time::SystemTime;
 
@@ -17,17 +18,17 @@ fn  format_time(time: SystemTime) -> String {
     datetime.format("%Y-%m-%d %T").to_string()
 }
 
-#[get("/hello/<name>/<age>")]
-async fn hello(state: &State<ActorRef<actor_db::DbMessage>>, name: &str, age: i8) -> String {
-    let add = match ractor::call!(state, actor_db::DbMessage::GetAllUsersLastSeen) {
-        Ok(cli) => cli.into_iter()
-                        .map(|r| format!("{}: {:?}<br>", r.user_name, format_time(r.last_seen)))
-                        .collect::<Vec<String>>()
-                        .join(","),
-        Err(_) => "error...".into()
-    };
-    format!("Hello, {} year old named {}! Res: {}", age, name, add)
-}
+// #[get("/hello/<name>/<age>")]
+// async fn hello(state: &State<ActorRef<actor_db::DbMessage>>, name: &str, age: i8) -> String {
+//     let add = match ractor::call!(state, actor_db::DbMessage::GetAllUsersLastSeen) {
+//         Ok(cli) => cli.into_iter()
+//                         .map(|r| format!("{}: {:?}<br>", r.user_name, format_time(r.last_seen)))
+//                         .collect::<Vec<String>>()
+//                         .join(","),
+//         Err(_) => "error...".into()
+//     };
+//     format!("Hello, {} year old named {}! Res: {}", age, name, add)
+// }
 
 #[get("/<code>")]
 fn forced_error(code: u16) -> Status {
@@ -91,28 +92,47 @@ async fn messages(user: Option<String>, state: &State<ActorRef<actor_db::DbMessa
         return Template::render("error", &HashMap::from([("error", "Unable to get messages")]));
     };
     let data = messages.into_iter()
-                        .map(|r| (format_time(r.time), r.user_name, format!("{:?}", r.message)))
+                        .map(|r| (format_time(r.time), r.user_name, format!("{:?}", r.message), r.message))
                         .collect::<Vec<_>>();
     info!("Returning messages: {:?}", data);
     
     #[derive(Serialize)]
     struct Data {
-        messages: Vec<(String, String, String)>,
-        rendered: String
+        messages: Vec<(String, String, String, shared::Message)>,
+        rendered: String,
+        messages2: Vec<(String, String)>
     }
-    let data = Data { messages: data, rendered: format_time(std::time::SystemTime::now()) };
+
+    use base64::{engine::general_purpose, Engine as _};
+    let messages2 = 
+        data.iter()
+        .map(|(t, u, m0, m)| match m {
+            shared::Message::Text { from, content } => ("text".to_string(), content.to_string()),
+            shared::Message::Image { from, content } => ("image".to_string(), general_purpose::STANDARD.encode(&content)),
+            shared::Message::File { from, name, content } => ("file".to_string(), name.to_string()),
+            _ => ("".to_string(),"".to_string()),
+        })
+        .collect();
+    let data = Data { messages: data, rendered: format_time(std::time::SystemTime::now()), messages2 };
     Template::render("messages", &data)
+}
+
+#[get("/")]
+async fn index() -> Redirect {
+
+    rocket::response::Redirect::to(uri!(users))
 }
 
 pub fn rocket(db_actor: ActorRef<actor_db::DbMessage>) -> Rocket<Build> {
 
-    let handlebars = handlebars::Handlebars::new();
-
     rocket::build()
-        .mount("/", routes![hello, users, delete_user, messages, forced_error])
-        .attach(Template::fairing())
+        .mount("/", routes![index, users, delete_user, messages, forced_error])
         .manage(db_actor)
-        .manage(handlebars)
+        //.manage(handlebars)
+        //.attach(Template::fairing())
+        .attach(Template::custom(|engines| {
+            engines.handlebars.register_helper("simple-helper", Box::new(web_handlebars_ext::SimpleHelper));
+        }))
         .attach(static_resources_initializer!(
             "favicon" => "favicon.ico"
         ))

@@ -2,13 +2,36 @@
 {{#*inline "body"}} 
 <h1>Stored messages</h1>
 
+{{! 
 <table class="messages_list">
-    <tr><th>Time</th><th>Who</th><th>Message</th></tr>
-    {{#each messages}}
+    <tr><th>Time</th><th>Who</th><th>Message</th><th></th></tr>
+    {x{#each messages}}
     <tr>
         <td>{{this.0}}</td>
         <td><a href="/messages?user={{this.1}}">{{this.1}}</a></td>
-        <td>{{this.2}}</td>
+        <!-- <td>{{this.2}}</td> -->
+        <!-- <td>{{ simple-helper this.3 }}</td> -->
+    </tr>
+    {x{/each}}
+</table>
+}}
+
+<table class="messages_list">
+    <tr><th>Time</th><th>Who</th><th>Message</th><th></th></tr>
+    {{#each messages2}}
+    <tr>
+        <td>{{this.0}}</td>
+        <td>
+            {{#if (eq this.0 "text")}}
+                text: {{this.1}}
+            {{/if}}
+            {{#if (eq this.0 "image")}}
+                <img alt="f" src="data:image/png;base64,{{this.1}}" />
+            {{/if}}
+            {{#if (eq this.0 "file")}}
+                file: {{this.1}}
+            {{/if}}
+        </td>
     </tr>
     {{/each}}
 </table>

@@ -5,6 +5,7 @@ mod db;
 mod actor_connected_clients;
 mod actor_db;
 mod web;
+mod web_handlebars_ext;
 
 use clap::Parser;
 use shared::{Message, chaos};
@@ -44,12 +45,12 @@ async fn main() -> Result<()> {
                             .await
                             .context("Unable to create listener. Is there any other instance running?")?;
 
-    let (db_actor, db_actor_handle) = 
+    let (db_actor, _db_actor_handle) = 
         Actor::spawn(Some("actor_db".to_string()), actor_db::DbAccessActor, ())
             .await
             .expect("Failed to start actor with access to db");
 
-    let (connected_cli_actor, connected_cli_actor_handle) = 
+    let (connected_cli_actor, _connected_cli_actor_handle) = 
         Actor::spawn(Some("actor_clients".to_string()), actor_connected_clients::ConnectedClientsActor{db: db_actor.clone()}, ())
             .await
             .expect("Failed to start actor with connected clients");
