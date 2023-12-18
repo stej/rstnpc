@@ -171,14 +171,15 @@ Flow:
 
 *nové ve verzi hw17*
 
-Použitý crate [rocket](https://rocket.rs/) a pro templatování pak [handlebars](https://github.com/sunng87/handlebars-rust)
+Použitý crate [rocket](https://rocket.rs/) a pro templatování pak [handlebars](https://github.com/sunng87/handlebars-rust).
 
 ### Nejasnosti / obtíže 
 
 Implementace byla relativně přímočará. Jediná část, která působí kostrbatě, je zobrazování *Messages* v tabulce pomocí handlebars templates.
 
 #### Ideální stav (ale nereálný)
-Mít helper jako `match`, abych mohl psát kód 
+
+Mít helper jako `match`, abych mohl psát kód:
 
 ```html
 <table>
@@ -215,9 +216,9 @@ V mém případě bych tedy poslal message typu `Image`, ta by se zeserializoval
 
 #### Aktuální implementace
 
-Proto jsem šelnakonec jinou cestou, i když s ní nejsem spokojený.
+Proto jsem šel nakonec jinou cestou, i když s ní nejsem spokojený.
 
-Do templaty posílám už připravená data, i když poněkud netypově. Výstupem z templaty je `String`, proto už rovnou posílám `String`.
+Do templaty posílám už připravená data, i když netypově. Výstupem z templaty je `String`, proto už rovnou posílám `String`. Navíc jako "parametr" posílám jen jednu hodnotu (= druhý prvke z tuple).
 
 ```rust
 let messages = 
@@ -236,7 +237,7 @@ let data = Data { rendered: format_time(std::time::SystemTime::now()), messages 
 Template::render("messages", &data)
 ```
 
-Template pak reaguje použije první prvke z tuple a podle něj určuje typ zprávy:
+Template pak podle prvního prvku z tuple určuje typ zprávy:
 ```html
 <table id="messages_list">
     <tr><th>Time</th><th>Who</th><th>Message</th><th></th></tr>
