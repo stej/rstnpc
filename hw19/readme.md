@@ -265,7 +265,7 @@ Template pak podle prvního prvku z tuple určuje typ zprávy:
 
 ## Metriky
 
-Aplikace vystavuje endpoint [http://<ip>:<port>/metrics](http://<ip>:<port>/metrics) pro promethea.
+Aplikace vystavuje endpoint [http://`<ip`>:`<port`>/metrics](http://<ip>:<port>/metrics) pro promethea.
 
 Jak metriky vypadají:
 
