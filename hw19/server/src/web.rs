@@ -1,6 +1,6 @@
-use rocket::http::{Status, ContentType};
+use rocket::http::Status;
 use rocket::response::{content, status, Redirect};
-use rocket::{Rocket, Request, Response, Build, State, serde};
+use rocket::{Rocket, Request,Build, State, serde};
 
 use crate::actor_db;
 use ractor::ActorRef;
@@ -24,10 +24,7 @@ fn forced_error(code: u16) -> Status {
 
 #[catch(404)]
 fn general_not_found() -> content::RawHtml<&'static str> {
-    content::RawHtml(r#"
-        <p>Hmm... What are you looking for?</p>
-        Say <a href="/hello/Sergio/100">hello!</a>
-    "#)
+    content::RawHtml("<p>Sorry jako</p>")
 }
 
 #[catch(default)]
@@ -108,40 +105,15 @@ async fn index() -> Redirect {
 }
 
 #[get("/metrics")]
-//async fn metrics() -> Result<Response<'static>> {
-async fn metrics() -> Vec<u8> {
+async fn metrics() -> content::RawText<Vec<u8>> {
     use prometheus::Encoder;
-    ///use std::io::Cursor;
     let encoder = prometheus::TextEncoder::new();
     let mut buffer = vec![];
 
     let metrics = prometheus::gather();
     encoder.encode(&metrics, &mut buffer).unwrap();
 
-    // let res = 
-    //     Response::build()
-    //     .status(Status::Ok)
-    //     .header(ContentType::Plain)
-    //     //.sized_body(buffer.len(), buffer)
-    //     .sized_body(buffer.len(), Cursor::new(buffer))
-    //     .finalize();
-    // Ok(res)
-    buffer
-
-    // METRICS_MESSAGES_COUNTER.inc();
-    
-    // encoder.encode(&metric_families, &mut buffer).unwrap();
-    // HTTP_BODY_GAUGE.set(buffer.len() as f64);
-
-    // let response = Response::builder()
-    //     .status(200)
-    //     .header(CONTENT_TYPE, encoder.format_type())
-    //     .body(Body::from(buffer))
-    //     .unwrap();
-
-    // timer.observe_duration();
-
-    // Ok(response)
+    content::RawText(buffer)
 }
 
 static_response_handler! {
