@@ -262,3 +262,19 @@ Template pak podle prvního prvku z tuple určuje typ zprávy:
     {{/each}}
 </table>
 ```
+
+## Metriky
+
+Aplikace vystavuje endpoint [http://<ip>:<port>/metrics](http://<ip>:<port>/metrics) pro promethea.
+
+Jak metriky vypadají:
+
+![image](prometheus.png)
+
+*Note*: metriky se resetují s koncem aplikace. U počtu přihlášených userů toto nevadí a dává smysl. U počtu uložených zpráv by bylo možné na začátku načíst z databáze. 
+Druhá možnost je spolehnout se na `PromQL` a `rate`, že bude schopná nás od tohoto odstínit a ohandlovat pád na 0 (viz [první link, co nabídnul google](https://www.reddit.com/r/PrometheusMonitoring/comments/118ug34/counter_reset_after_target_restart/)).
+
+### Dostupné metriky
+- `chatapp_total_messages_count`, type: `counter`
+- `chatapp_connected_users_count`, type: `gauge`
+
