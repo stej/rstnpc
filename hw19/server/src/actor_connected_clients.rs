@@ -5,6 +5,7 @@ use tokio::net::tcp::OwnedWriteHalf;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use crate::actor_db;
 use actor_db::DbMessage;
+use crate::metrics;
 
 #[derive(Debug)]
 pub struct ConnectedClients {
@@ -91,20 +92,24 @@ impl Actor for ConnectedClientsActor {
             ConnectedClientsActorMessage::IncommingChatMessage { user_name, message } => {
                 debug!("Message from channel {:?}: {:?}", user_name, message);
                     
-                    if matches!(message, Message::ClientQuit{from:_}) {
-                        clients.remove(&user_name);
-                    } 
+                if matches!(message, Message::ClientQuit{from:_}) {
+                    clients.remove(&user_name);
+                    metrics::users_down();
+                } 
 
-                    match message {
-                        Message::Text{ .. } | 
-                        Message::Image { .. } | 
-                        Message::File { .. } => self.db.cast(DbMessage::StoreChatMessage { user_name: user_name.clone(), message: message.clone() }).expect("Save to db failed."),  //db::store_message(&user_name, &message).await,
-                        _ => {}
-                    };
+                match message {
+                    Message::Text{ .. } | 
+                    Message::Image { .. } | 
+                    Message::File { .. } => { 
+                        self.db.cast(DbMessage::StoreChatMessage { user_name: user_name.clone(), message: message.clone() }).expect("Save to db failed.");  //db::store_message(&user_name, &message).await,
+                        metrics::messages_up();
+                    },
+                    _ => {}
+                };
 
-                    clients.broadcast_message((message, user_name)).await;
+                clients.broadcast_message((message, user_name)).await;
 
-                    self.db.cast(DbMessage::UpdateLastSeen { user_names: clients.get_clients() }).expect("Unable to update users's last presence.")
+                self.db.cast(DbMessage::UpdateLastSeen { user_names: clients.get_clients() }).expect("Unable to update users's last presence.")
             },
             ConnectedClientsActorMessage::NewClient { user_name, mut stream_writer } => {
                 let missing_messages = ractor::call!(self.db, DbMessage::GetMissingChatMessageSinceLastSeen, user_name.clone()).expect("Unable to get missing messages.");

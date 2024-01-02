@@ -1,6 +1,6 @@
-use rocket::http::Status;
+use rocket::http::{Status, ContentType};
 use rocket::response::{content, status, Redirect};
-use rocket::{Rocket, Request, Build, State, serde};
+use rocket::{Rocket, Request, Response, Build, State, serde};
 
 use crate::actor_db;
 use ractor::ActorRef;
@@ -107,6 +107,43 @@ async fn index() -> Redirect {
     rocket::response::Redirect::to(uri!(users))
 }
 
+#[get("/metrics")]
+//async fn metrics() -> Result<Response<'static>> {
+async fn metrics() -> Vec<u8> {
+    use prometheus::Encoder;
+    ///use std::io::Cursor;
+    let encoder = prometheus::TextEncoder::new();
+    let mut buffer = vec![];
+
+    let metrics = prometheus::gather();
+    encoder.encode(&metrics, &mut buffer).unwrap();
+
+    // let res = 
+    //     Response::build()
+    //     .status(Status::Ok)
+    //     .header(ContentType::Plain)
+    //     //.sized_body(buffer.len(), buffer)
+    //     .sized_body(buffer.len(), Cursor::new(buffer))
+    //     .finalize();
+    // Ok(res)
+    buffer
+
+    // METRICS_MESSAGES_COUNTER.inc();
+    
+    // encoder.encode(&metric_families, &mut buffer).unwrap();
+    // HTTP_BODY_GAUGE.set(buffer.len() as f64);
+
+    // let response = Response::builder()
+    //     .status(200)
+    //     .header(CONTENT_TYPE, encoder.format_type())
+    //     .body(Body::from(buffer))
+    //     .unwrap();
+
+    // timer.observe_duration();
+
+    // Ok(response)
+}
+
 static_response_handler! {
     "/favicon.ico" => favicon => "favicon",
     "/images/disk.png" => disk_png => "disk",
@@ -116,7 +153,7 @@ static_response_handler! {
 pub fn rocket(db_actor: ActorRef<actor_db::DbMessage>) -> Rocket<Build> {
 
     rocket::build()
-        .mount("/", routes![index, users, delete_user, messages, forced_error])
+        .mount("/", routes![index, users, delete_user, messages, forced_error, metrics])
         .manage(db_actor)
         .attach(Template::custom(|_engines| {
             //engines.handlebars.register_helper("simple-helper", Box::new(web_handlebars_ext::SimpleHelper));

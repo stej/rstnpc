@@ -1,6 +1,7 @@
 #[macro_use] extern crate rocket;
 #[macro_use] extern crate rocket_include_static_resources;
 
+mod metrics;
 mod db;
 mod actor_connected_clients;
 mod actor_db;
@@ -31,6 +32,8 @@ async fn main() -> Result<()> {
     if chaos::enabled() {
         warn!("Chaos monkey is enabled");
     }
+
+    metrics::init();
 
     db::ensure_db_exists().await?;
 
@@ -65,6 +68,8 @@ async fn main() -> Result<()> {
                     continue;
                 };
 
+                metrics::users_up();
+                
                 // register new client; it's stored with other clients so that it's possible to broadcast the incomming message
                 connected_cli_actor.cast(ConnectedClientsActorMessage::NewClient{user_name: user_name.to_string(), stream_writer}).unwrap();
                 
